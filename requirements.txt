@@ -5,3 +5,5 @@ pandas
 xlrd 
 openpyxl
 matplotlib
+Network
+pyvis

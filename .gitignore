@@ -3,6 +3,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+celegans_rede_interativa.html
+
 # C extensions
 *.so
 
