@@ -39,6 +39,16 @@ PALETA_CORES_FUNCIONAIS = {
     "Faríngeo": "#9C27B0"                 # Roxo
 }
 
+# Coordenadas (X, Y) dos centros de cada cluster funcional na tela
+CENTROS_GRUPOS_FUNCIONAIS = {
+    "Sensorial": (-950, -120),             # Esquerda (Entrada sensorial)
+    "Interneurônio": (0, -620),            # Topo-Centro (Processamento)
+    "Interneurônio (Comando)": (0, 80),    # Centro (Hubs de comando)
+    "Motor": (950, -120),                  # Direita (Execução motora)
+    "Faríngeo": (-750, 600),               # Inferior-Esquerda (Faringe)
+    "Desconhecido": (750, 600)
+}
+
 PYVIS_PHYSICS_OPTIONS = """
 var options = {
   "nodes": {
@@ -58,27 +68,26 @@ var options = {
   },
   "physics": {
     "enabled": true,
-    "forceAtlas2Based": {
-      "gravitationalConstant": -120,
-      "centralGravity": 0.015,
-      "springLength": 150,
-      "springConstant": 0.02,
-      "damping": 0.85,
-      "avoidOverlap": 0.6
+    "repulsion": {
+      "centralGravity": 0.0,
+      "springLength": 25,
+      "springConstant": 0.045,
+      "nodeDistance": 75,
+      "damping": 0.85
     },
-    "maxVelocity": 25,
-    "minVelocity": 1.2,
-    "solver": "forceAtlas2Based",
+    "maxVelocity": 20,
+    "minVelocity": 0.75,
+    "solver": "repulsion",
     "stabilization": {
       "enabled": true,
-      "iterations": 300,
+      "iterations": 200,
       "updateInterval": 25,
       "fit": true
     }
   },
   "interaction": {
     "hover": true,
-    "tooltipDelay": 100,
+    "tooltipDelay": 80,
     "hideEdgesOnDrag": true,
     "multiselect": true
   }
