@@ -2,7 +2,7 @@
 Módulo de visualização estática (Matplotlib) e interativa (Pyvis) do conectoma.
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -71,7 +71,8 @@ class ConnectomeVisualizer:
     def exportar_html_interativo(
         self,
         arquivo_saida: str = "celegans_rede_interativa.html",
-        notebook: bool = False
+        notebook: bool = False,
+        influentes: Optional[Dict[str, float]] = None
     ) -> None:
         """Gera HTML em tela cheia com os neurônios agrupados espacialmente por tipo funcional."""
         net = Network(
@@ -129,14 +130,21 @@ class ConnectomeVisualizer:
                     f"Grau Total: {grau_no}\n"
                     f"Região (Soma): {d.get('regiao_soma', 'N/A')}"
                 )
+                eh_influente = influentes is not None and n in influentes
+                if eh_influente:
+                    tooltip += (
+                        f"\nMais influente da classe: {tipo}"
+                        f"\nEscore de influência: {influentes[n]:.3f}"
+                    )
 
                 g_vis.add_node(
                     n,
-                    label=n,
+                    label=f"★ {n}" if eh_influente else n,
                     title=tooltip,
                     color=PALETA_CORES_FUNCIONAIS.get(tipo, "grey"),
-                    size=tamanho,
-                    borderWidth=1.5,
+                    size=tamanho * (1.5 if eh_influente else 1.0),
+                    shape="star" if eh_influente else "dot",
+                    borderWidth=4 if eh_influente else 1.5,
                     x=pos_x,
                     y=pos_y,
                     physics=True
@@ -249,6 +257,7 @@ class ConnectomeVisualizer:
             <div class="item-legenda"><span class="bolinha-cor" style="background:#EA4335;"></span>Comando / Hubs (Centro)</div>
             <div class="item-legenda"><span class="bolinha-cor" style="background:#34A853;"></span>Motor (Direita)</div>
             <div class="item-legenda"><span class="bolinha-cor" style="background:#9C27B0;"></span>Faríngeo (Inferior Esq.)</div>
+            <div class="item-legenda">★ Mais influente da classe</div>
         </div>
         <button id="btn-toggle-physics" onclick="alternarFisica()">Física: Congelada (Clique p/ Ativar)</button>
         <script type="text/javascript">
