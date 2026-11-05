@@ -1,14 +1,19 @@
 """
 Módulo de visualização estática (Matplotlib) e interativa (Pyvis) do conectoma.
+Todos os arquivos são salvos na pasta de saída configurada sem interromper a execução.
 """
 
-from typing import Dict, List, Optional
+import os
+from typing import Dict, List, Optional, Set
 import numpy as np
 import pandas as pd
 import networkx as nx
+import matplotlib
+matplotlib.use("Agg")  # Backend não-interativo: garante que nenhuma janela trave a execução
 import matplotlib.pyplot as plt
 from pyvis.network import Network
 from config import (
+    OUTPUT_DIR,
     PALETA_CORES_FUNCIONAIS,
     CENTROS_GRUPOS_FUNCIONAIS,
     PYVIS_PHYSICS_OPTIONS
@@ -16,19 +21,29 @@ from config import (
 
 
 class ConnectomeVisualizer:
-    """Gera gráficos de matrizes de fluxo e exporta a topologia interativa em HTML."""
+    """Gera gráficos estáticos e exporta a topologia interativa em HTML na pasta outputs."""
 
-    def __init__(self, graph: nx.MultiDiGraph):
+    def __init__(self, graph: nx.MultiDiGraph, output_dir: str = OUTPUT_DIR):
         self.graph = graph
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
 
-    @staticmethod
+    def _resolver_caminho(self, nome_arquivo: str) -> str:
+        """Garante que o arquivo seja salvo dentro de self.output_dir."""
+        if os.path.dirname(nome_arquivo):
+            os.makedirs(os.path.dirname(nome_arquivo), exist_ok=True)
+            return nome_arquivo
+        return os.path.join(self.output_dir, nome_arquivo)
+
     def plotar_matrizes_fluxo(
+        self,
         mat_quimica: pd.DataFrame,
         mat_eletrica: pd.DataFrame,
         ordem_classes: List[str],
-        salvar_caminho: Optional[str] = None
-    ) -> None:
-        """Renderiza os heatmaps comparativos das camadas Química e Elétrica."""
+        nome_arquivo: str = "matrizes_fluxo.png"
+    ) -> str:
+        """Renderiza e salva os heatmaps comparativos das camadas Química e Elétrica sem bloquear."""
+        caminho_saida = self._resolver_caminho(nome_arquivo)
         fig, axes = plt.subplots(1, 2, figsize=(16, 6.5))
 
         matrizes = [
@@ -64,17 +79,102 @@ class ConnectomeVisualizer:
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Volume Sináptico Acumulado")
 
         plt.tight_layout()
-        if salvar_caminho:
-            plt.savefig(salvar_caminho, dpi=300, bbox_inches="tight")
-        plt.show()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de matrizes de fluxo salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_rich_club_ponderado(
+        self,
+        df_rc: pd.DataFrame,
+        k_otimo: int,
+        membros_elite: List[str],
+        camada: str = "Combinada",
+        nome_arquivo: str = "rich_club_ponderado.png"
+    ) -> str:
+        """
+        Plota em dois painéis:
+          1. Coeficiente Rich-Club Ponderado empírico phi_w(k) vs. Modelo Nulo phi_w_null(k).
+          2. Coeficiente Normalizado rho_w(k) = phi_w(k) / phi_w_null(k), destacando o regime > 1.
+        Salva diretamente na pasta outputs sem interromper a execução.
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.2))
+
+        k_vals = df_rc["k"].values
+        phi_w = df_rc["Phi_w"].values
+        phi_null = df_rc["Phi_w_Null"].values
+        rho_w = df_rc["Rho_w"].values
+
+        # Painel 1: Curva empírica vs Modelo Nulo
+        ax1.plot(
+            k_vals, phi_w, color="#EA4335", lw=2.5, marker="o", markersize=4,
+            label=r"Conectoma Real $\phi^{w}(k)$"
+        )
+        ax1.plot(
+            k_vals, phi_null, color="#555555", lw=2.0, linestyle="--",
+            label=r"Modelo Nulo $\phi^{w}_{\mathrm{null}}(k)$ (Grau Preservado)"
+        )
+        ax1.axvline(
+            k_otimo, color="#4285F4", linestyle=":", lw=1.8,
+            label=f"Limiar Rich-Club (k > {k_otimo})"
+        )
+        ax1.set_title(f"Coeficiente Rich-Club Ponderado ({camada})", fontsize=12, fontweight="bold")
+        ax1.set_xlabel("Grau Total (k)", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(r"$\phi^{w}(k)$", fontsize=12, fontweight="bold")
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(loc="upper left", fontsize=9.5)
+
+        # Painel 2: Coeficiente Normalizado rho_w(k)
+        ax2.plot(
+            k_vals, rho_w, color="#34A853", lw=2.5, marker="s", markersize=4,
+            label=r"Razão Normalizada $\rho^{w}(k) = \phi^{w}(k) / \phi^{w}_{\mathrm{null}}(k)$"
+        )
+        ax2.axhline(
+            1.0, color="#222222", linestyle="--", lw=1.5,
+            label=r"Limiar de Referência ($\rho^{w} = 1.0$)"
+        )
+        ax2.axvline(
+            k_otimo, color="#4285F4", linestyle=":", lw=1.8,
+            label=f"Núcleo Elite (k > {k_otimo}, n={len(membros_elite)})"
+        )
+        ax2.fill_between(
+            k_vals, 1.0, rho_w, where=(rho_w > 1.0),
+            color="#34A853", alpha=0.18,
+            label=r"Regime Rich-Club ($\rho^{w} > 1$)"
+        )
+
+        # Anota os neurônios do clube de elite no painel direito
+        elite_str = ", ".join(membros_elite[:12])
+        if len(membros_elite) > 12:
+            elite_str += "..."
+        ax2.text(
+            0.03, 0.93, f"Núcleo Rich-Club (k > {k_otimo}):\n{elite_str}",
+            transform=ax2.transAxes, fontsize=9, verticalalignment="top",
+            bbox={"boxstyle": "round,pad=0.4", "facecolor": "#f8f9fa", "edgecolor": "#bbbbbb"}
+        )
+
+        ax2.set_title(f"Rich-Club Ponderado Normalizado ({camada})", fontsize=12, fontweight="bold")
+        ax2.set_xlabel("Grau Total (k)", fontsize=11, fontweight="bold")
+        ax2.set_ylabel(r"$\rho^{w}(k)$", fontsize=12, fontweight="bold")
+        ax2.grid(True, alpha=0.3)
+        ax2.legend(loc="lower left", fontsize=9.5)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico do Coeficiente Rich-Club Ponderado salvo em: '{caminho_saida}'")
+        return caminho_saida
 
     def exportar_html_interativo(
         self,
         arquivo_saida: str = "celegans_rede_interativa.html",
         notebook: bool = False,
-        influentes: Optional[Dict[str, float]] = None
-    ) -> None:
-        """Gera HTML em tela cheia com os neurônios agrupados espacialmente por tipo funcional."""
+        influentes: Optional[Dict[str, float]] = None,
+        membros_rich_club: Optional[Set[str]] = None
+    ) -> str:
+        """Gera HTML em tela cheia na pasta outputs sem abrir janelas bloqueantes."""
+        caminho_saida = self._resolver_caminho(arquivo_saida)
         net = Network(
             notebook=notebook,
             height="100vh",
@@ -87,21 +187,18 @@ class ConnectomeVisualizer:
 
         g_vis = nx.DiGraph()
 
-        # 1. Agrupa os neurônios por tipo funcional e ordena pelo grau (hubs no centro do grupo)
         nos_por_tipo = {}
         for n, d in self.graph.nodes(data=True):
             tipo = d.get("tipo_funcional", "Desconhecido")
             nos_por_tipo.setdefault(tipo, []).append((n, d))
 
-        angulo_aureo = np.pi * (3.0 - np.sqrt(5.0))  # ~137.5 graus para distribuição uniforme
+        angulo_aureo = np.pi * (3.0 - np.sqrt(5.0))
 
         for tipo, lista_nos in nos_por_tipo.items():
-            # Ordena decrescentemente pelo grau para posicionar os maiores hubs no centro do cluster
             lista_nos.sort(key=lambda item: self.graph.degree(item[0]), reverse=True)
             cx, cy = CENTROS_GRUPOS_FUNCIONAIS.get(tipo, (0, 0))
             id_ancora = f"__ancora_{tipo}__"
 
-            # Cria nó âncora invisível e fixo no centro do cluster
             g_vis.add_node(
                 id_ancora,
                 label=" ",
@@ -116,7 +213,6 @@ class ConnectomeVisualizer:
             )
 
             for idx, (n, d) in enumerate(lista_nos):
-                # Posição inicial em espiral de Fibonacci ao redor do centro (cx, cy)
                 raio = 52.0 * np.sqrt(idx)
                 theta = idx * angulo_aureo
                 pos_x = float(cx + raio * np.cos(theta))
@@ -124,11 +220,13 @@ class ConnectomeVisualizer:
 
                 grau_no = self.graph.degree(n)
                 tamanho = 10 + (grau_no / 5.0)
+                eh_rc = membros_rich_club is not None and n in membros_rich_club
                 tooltip = (
                     f"Neurônio: {n}\n"
                     f"Tipo: {tipo}\n"
                     f"Grau Total: {grau_no}\n"
-                    f"Região (Soma): {d.get('regiao_soma', 'N/A')}"
+                    f"Região (Soma): {d.get('regiao_soma', 'N/A')}\n"
+                    f"Membro Rich-Club: {'Sim' if eh_rc else 'Não'}"
                 )
                 eh_influente = influentes is not None and n in influentes
                 if eh_influente:
@@ -144,13 +242,12 @@ class ConnectomeVisualizer:
                     color=PALETA_CORES_FUNCIONAIS.get(tipo, "grey"),
                     size=tamanho * (1.5 if eh_influente else 1.0),
                     shape="star" if eh_influente else "dot",
-                    borderWidth=4 if eh_influente else 1.5,
+                    borderWidth=4 if (eh_influente or eh_rc) else 1.5,
                     x=pos_x,
                     y=pos_y,
                     physics=True
                 )
 
-                # Mola invisível que prende o neurônio ao centro do seu próprio cluster de cor
                 g_vis.add_edge(
                     id_ancora,
                     n,
@@ -162,7 +259,6 @@ class ConnectomeVisualizer:
                     arrows={"to": {"enabled": False}}
                 )
 
-        # 2. Adiciona as sinapses reais com physics=False para não misturar os grupos de cores
         for u, v, k, d in self.graph.edges(keys=True, data=True):
             peso = d.get("weight", 1)
             if g_vis.has_edge(u, v):
@@ -181,13 +277,8 @@ class ConnectomeVisualizer:
                 )
 
         net.from_nx(g_vis)
+        net.save_graph(caminho_saida)
 
-        if notebook:
-            net.show(arquivo_saida, notebook=True)
-        else:
-            net.save_graph(arquivo_saida)
-
-        # 3. Injeta CSS Fullscreen, Legenda de Cores e controle de física sem vibração
         patch_fullscreen_e_legenda = """
         <style>
             html, body {
@@ -279,12 +370,13 @@ class ConnectomeVisualizer:
         </body>
         """
 
-        with open(arquivo_saida, "r", encoding="utf-8") as f:
+        with open(caminho_saida, "r", encoding="utf-8") as f:
             conteudo_html = f.read()
 
         conteudo_html = conteudo_html.replace("</body>", patch_fullscreen_e_legenda)
 
-        with open(arquivo_saida, "w", encoding="utf-8") as f:
+        with open(caminho_saida, "w", encoding="utf-8") as f:
             f.write(conteudo_html)
 
-        print(f"Arquivo '{arquivo_saida}' gerado com agrupamento por tipo funcional!")
+        print(f"Grafo interativo HTML salvo em: '{caminho_saida}'")
+        return caminho_saida

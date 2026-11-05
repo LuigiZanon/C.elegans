@@ -1,15 +1,16 @@
 """
-Módulo de análise estatística, resumo topológico e matrizes de transição sináptica.
+Módulo de análise estatística, resumo topológico, influência e Rich-Club Ponderado.
 """
 
 from typing import Dict, List, Tuple
+import numpy as np
 import pandas as pd
 import networkx as nx
 from config import ORDEM_CLASSES_PADRAO
 
 
 class ConnectomeAnalyzer:
-    """Realiza análises de fluxo entre classes e de influência dos neurônios."""
+    """Realiza análises de fluxo entre classes, influência e Rich-Club Ponderado."""
 
     def __init__(self, graph: nx.MultiDiGraph, agrupar_comando: bool = False):
         self.graph = graph
@@ -163,6 +164,168 @@ class ConnectomeAnalyzer:
             ["Score_Influencia", "Forca_Saida", "Grau_Saida", "Neuronio"],
             ascending=[False, False, False, True]
         ).reset_index(drop=True)
+
+    @staticmethod
+    def _randomizar_arestas_direcionadas(
+        arestas: List[Tuple[str, str, float]],
+        n_swaps: int,
+        rng: np.random.Generator
+    ) -> List[Tuple[str, str, float]]:
+        """
+        Realiza trocas de arestas direcionadas (Directed Double-Edge Swap) preservando
+        exatamente o grau de entrada e saída de todos os vértices e embaralhando os pesos.
+        """
+        m = len(arestas)
+        if m < 2:
+            return list(arestas)
+
+        origens = [u for u, _, _ in arestas]
+        destinos = [v for _, v, _ in arestas]
+        pesos = [w for _, _, w in arestas]
+        conjunto_arestas = set(zip(origens, destinos))
+
+        for _ in range(n_swaps):
+            i, j = rng.integers(0, m, size=2)
+            if i == j:
+                continue
+            u1, v1 = origens[i], destinos[i]
+            u2, v2 = origens[j], destinos[j]
+
+            # Evita auto-laços e arestas duplicadas
+            if u1 == v2 or u2 == v1 or u1 == u2 or v1 == v2:
+                continue
+            if (u1, v2) in conjunto_arestas or (u2, v1) in conjunto_arestas:
+                continue
+
+            conjunto_arestas.remove((u1, v1))
+            conjunto_arestas.remove((u2, v2))
+            conjunto_arestas.add((u1, v2))
+            conjunto_arestas.add((u2, v1))
+
+            destinos[i] = v2
+            destinos[j] = v1
+
+        # Permuta os pesos aleatoriamente na topologia recableada
+        pesos_embaralhados = rng.permutation(pesos).tolist()
+        return list(zip(origens, destinos, pesos_embaralhados))
+
+    def calcular_rich_club_ponderado(
+        self,
+        camada: str = "Combinada",
+        n_iter_nulo: int = 50,
+        seed: int = 42
+    ) -> Tuple[pd.DataFrame, List[str], int]:
+        """
+        Calcula a curva do Coeficiente Rich-Club Ponderado (Opsahl et al., 2008):
+            phi_w(k) = W_>k / sum_{l=1}^{E_>k} w_rank_l
+        E a versão normalizada frente a um modelo nulo que preserva graus:
+            rho_w(k) = phi_w(k) / phi_w_null(k)
+
+        Retorna:
+            - DataFrame com k, Num_Nos, Arestas_Club, Peso_Club, Phi_Topologico,
+              Phi_w, Phi_w_Null e Rho_w (normalizado).
+            - Lista dos neurônios que compõem o núcleo Rich-Club no limiar ótimo.
+            - O limiar k* de destaque do Rich-Club.
+        """
+        projetado = self._projetar_camada_influencia(camada)
+        graus = dict(projetado.degree())
+
+        arestas_originais = [
+            (u, v, float(d["weight"])) for u, v, d in projetado.edges(data=True)
+        ]
+        if not arestas_originais:
+            return pd.DataFrame(), [], 0
+
+        pesos_ordenados = np.sort([w for _, _, w in arestas_originais])[::-1]
+        soma_acumulada_ranking = np.cumsum(pesos_ordenados)
+
+        valores_k = sorted(set(graus.values()))
+        # Mantém apenas limiares k onde restam pelo menos 3 neurônios no clube
+        limiares_k = [
+            k for k in valores_k
+            if sum(1 for g in graus.values() if g > k) >= 3
+        ]
+
+        # Pré-calcula os conjuntos de nós N_>k para cada limiar k
+        conjuntos_nos = {
+            k: {n for n, g in graus.items() if g > k}
+            for k in limiares_k
+        }
+
+        # 1. Calcula phi(k) e phi_w(k) empíricos no conectoma real
+        dados_k = {}
+        for k in limiares_k:
+            club_nodes = conjuntos_nos[k]
+            n_club = len(club_nodes)
+            pesos_internos = [
+                w for u, v, w in arestas_originais
+                if u in club_nodes and v in club_nodes
+            ]
+            e_k = len(pesos_internos)
+            w_k = float(sum(pesos_internos))
+
+            phi_topo = e_k / (n_club * (n_club - 1)) if n_club > 1 else 0.0
+            phi_w = w_k / float(soma_acumulada_ranking[e_k - 1]) if e_k > 0 else 0.0
+
+            dados_k[k] = {
+                "k": k,
+                "Num_Nos": n_club,
+                "Arestas_Club": e_k,
+                "Peso_Club": w_k,
+                "Phi_Topologico": phi_topo,
+                "Phi_w": phi_w
+            }
+
+        # 2. Modelo Nulo (Directed Double-Edge Swap + Weight Reshuffling)
+        rng = np.random.default_rng(seed)
+        acumulador_nulo = {k: [] for k in limiares_k}
+        n_swaps = max(len(arestas_originais) * 2, 1000)
+
+        for _ in range(n_iter_nulo):
+            arestas_nulas = self._randomizar_arestas_direcionadas(
+                arestas_originais, n_swaps=n_swaps, rng=rng
+            )
+            for k in limiares_k:
+                club_nodes = conjuntos_nos[k]
+                pesos_int_nulo = [
+                    w for u, v, w in arestas_nulas
+                    if u in club_nodes and v in club_nodes
+                ]
+                e_nulo = len(pesos_int_nulo)
+                if e_nulo > 0:
+                    w_nulo = float(sum(pesos_int_nulo))
+                    phi_w_nulo = w_nulo / float(soma_acumulada_ranking[e_nulo - 1])
+                else:
+                    phi_w_nulo = 0.0
+                acumulador_nulo[k].append(phi_w_nulo)
+
+        registros = []
+        for k in limiares_k:
+            item = dados_k[k]
+            media_nula = float(np.mean(acumulador_nulo[k])) if acumulador_nulo[k] else 0.0
+            rho_w = item["Phi_w"] / media_nula if media_nula > 0 else 0.0
+            item["Phi_w_Null"] = media_nula
+            item["Rho_w"] = rho_w
+            registros.append(item)
+
+        df_rc = pd.DataFrame(registros)
+        if df_rc.empty:
+            return df_rc, [], 0
+
+        # Identifica o limiar ótimo do Rich-Club (onde Num_Nos <= 18 e Rho_w é máximo > 1.0)
+        candidatos_elite = df_rc[(df_rc["Num_Nos"] >= 5) & (df_rc["Num_Nos"] <= 18) & (df_rc["Rho_w"] > 1.0)]
+        if not candidatos_elite.empty:
+            idx_otimo = candidatos_elite["Rho_w"].idxmax()
+        else:
+            idx_otimo = df_rc["Rho_w"].idxmax()
+
+        k_otimo = int(df_rc.loc[idx_otimo, "k"])
+        membros_elite = sorted(
+            conjuntos_nos[k_otimo],
+            key=lambda n: graus[n],
+            reverse=True
+        )
+        return df_rc, membros_elite, k_otimo
 
     def exibir_resumo_console(self, neuronio_exemplo: str = "AVAL") -> None:
         """Imprime estatísticas gerais, contagem por tipo e matrizes no terminal."""

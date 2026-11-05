@@ -2,6 +2,8 @@
 Módulo de configurações, constantes biológicas e parâmetros visuais do conectoma C. elegans.
 """
 
+OUTPUT_DIR = "outputs"
+
 PREFIXOS_SENSORIAIS = (
     "ADF", "ADL", "AFD", "ALM", "ALN", "AQR", "ASE", "ASG", "ASH", "ASI",
     "ASJ", "ASK", "AVM", "AWA", "AWB", "AWC", "BAG", "CEP", "FLP", "IL1",

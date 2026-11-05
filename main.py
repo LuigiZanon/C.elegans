@@ -2,12 +2,16 @@
 Ponto de entrada principal (Main) para construção, análise e visualização do conectoma C. elegans.
 """
 
+import os
+from config import OUTPUT_DIR
 from connectome_builder import ConnectomeBuilder
 from flow_analyzer import ConnectomeAnalyzer
 from visualizer import ConnectomeVisualizer
 
 
 def main() -> None:
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     # 1. Carregamento das planilhas e construção do MultiDiGraph
     builder = ConnectomeBuilder(connect_path="NeuronConnect.xls")
     grafo_multi = builder.construir_grafo()
@@ -30,13 +34,35 @@ def main() -> None:
     print(destaques[colunas_destaques].to_string(index=False))
     influentes = dict(zip(destaques["Neuronio"], destaques["Score_Influencia"]))
 
-    # 4. Visualização estática (Heatmaps Matplotlib) e interativa (Pyvis HTML)
-    visualizer = ConnectomeVisualizer(grafo_multi)
-    visualizer.plotar_matrizes_fluxo(mat_quimica, mat_eletrica, ordem_classes)
+    # 4. Cálculo do Coeficiente Rich-Club Ponderado (Opsahl et al., 2008)
+    df_rich_club, membros_elite, k_otimo = analyzer.calcular_rich_club_ponderado(
+        camada="Combinada", n_iter_nulo=50, seed=42
+    )
+    print(f"\n=== COEFICIENTE RICH-CLUB PONDERADO (LIMIAR DE ELITE k > {k_otimo}) ===")
+    print(f"Quantidade de neurônios no núcleo Rich-Club: {len(membros_elite)}")
+    print(f"Neurônios membros: {', '.join(membros_elite)}")
+    print("\nÚltimos degraus da curva Rich-Club Ponderada:")
+    print(df_rich_club.tail(10).to_string(index=False))
+
+    # Salva também a tabela CSV do Rich-Club em outputs/
+    caminho_csv_rc = os.path.join(OUTPUT_DIR, "rich_club_ponderado.csv")
+    df_rich_club.to_csv(caminho_csv_rc, index=False)
+    print(f"\nTabela Rich-Club salva em: '{caminho_csv_rc}'")
+
+    # 5. Visualizações salvas diretamente na pasta 'outputs/' sem interromper a execução
+    visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
+    visualizer.plotar_matrizes_fluxo(
+        mat_quimica, mat_eletrica, ordem_classes, nome_arquivo="matrizes_fluxo.png"
+    )
+    visualizer.plotar_rich_club_ponderado(
+        df_rich_club, k_otimo, membros_elite,
+        camada="Combinada", nome_arquivo="rich_club_ponderado.png"
+    )
     visualizer.exportar_html_interativo(
-        "celegans_rede_interativa.html",
+        arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
-        influentes=influentes
+        influentes=influentes,
+        membros_rich_club=set(membros_elite)
     )
 
 
