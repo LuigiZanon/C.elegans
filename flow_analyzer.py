@@ -109,10 +109,6 @@ class ConnectomeAnalyzer:
     def analisar_influencia(self, camada: str = "Quimica") -> pd.DataFrame:
         """
         Classifica neurônios por influência topológica na camada indicada.
-
-        O escore é a média dos percentis de grau de saída, força de saída,
-        intermediação e PageRank. Os pesos químicos são direcionais; junções
-        elétricas são projetadas como relações bidirecionais.
         """
         projetado = self._projetar_camada_influencia(camada)
         if projetado.number_of_edges() == 0:
@@ -191,7 +187,6 @@ class ConnectomeAnalyzer:
             u1, v1 = origens[i], destinos[i]
             u2, v2 = origens[j], destinos[j]
 
-            # Evita auto-laços e arestas duplicadas
             if u1 == v2 or u2 == v1 or u1 == u2 or v1 == v2:
                 continue
             if (u1, v2) in conjunto_arestas or (u2, v1) in conjunto_arestas:
@@ -205,7 +200,6 @@ class ConnectomeAnalyzer:
             destinos[i] = v2
             destinos[j] = v1
 
-        # Permuta os pesos aleatoriamente na topologia recableada
         pesos_embaralhados = rng.permutation(pesos).tolist()
         return list(zip(origens, destinos, pesos_embaralhados))
 
@@ -216,16 +210,8 @@ class ConnectomeAnalyzer:
         seed: int = 42
     ) -> Tuple[pd.DataFrame, List[str], int]:
         """
-        Calcula a curva do Coeficiente Rich-Club Ponderado (Opsahl et al., 2008):
-            phi_w(k) = W_>k / sum_{l=1}^{E_>k} w_rank_l
-        E a versão normalizada frente a um modelo nulo que preserva graus:
-            rho_w(k) = phi_w(k) / phi_w_null(k)
-
-        Retorna:
-            - DataFrame com k, Num_Nos, Arestas_Club, Peso_Club, Phi_Topologico,
-              Phi_w, Phi_w_Null e Rho_w (normalizado).
-            - Lista dos neurônios que compõem o núcleo Rich-Club no limiar ótimo.
-            - O limiar k* de destaque do Rich-Club.
+        Calcula a curva do Coeficiente Rich-Club Ponderado (Opsahl et al., 2008)
+        e a versão normalizada frente a um modelo nulo que preserva graus.
         """
         projetado = self._projetar_camada_influencia(camada)
         graus = dict(projetado.degree())
@@ -240,19 +226,16 @@ class ConnectomeAnalyzer:
         soma_acumulada_ranking = np.cumsum(pesos_ordenados)
 
         valores_k = sorted(set(graus.values()))
-        # Mantém apenas limiares k onde restam pelo menos 3 neurônios no clube
         limiares_k = [
             k for k in valores_k
             if sum(1 for g in graus.values() if g > k) >= 3
         ]
 
-        # Pré-calcula os conjuntos de nós N_>k para cada limiar k
         conjuntos_nos = {
             k: {n for n, g in graus.items() if g > k}
             for k in limiares_k
         }
 
-        # 1. Calcula phi(k) e phi_w(k) empíricos no conectoma real
         dados_k = {}
         for k in limiares_k:
             club_nodes = conjuntos_nos[k]
@@ -276,7 +259,6 @@ class ConnectomeAnalyzer:
                 "Phi_w": phi_w
             }
 
-        # 2. Modelo Nulo (Directed Double-Edge Swap + Weight Reshuffling)
         rng = np.random.default_rng(seed)
         acumulador_nulo = {k: [] for k in limiares_k}
         n_swaps = max(len(arestas_originais) * 2, 1000)
@@ -312,7 +294,6 @@ class ConnectomeAnalyzer:
         if df_rc.empty:
             return df_rc, [], 0
 
-        # Identifica o limiar ótimo do Rich-Club (onde Num_Nos <= 18 e Rho_w é máximo > 1.0)
         candidatos_elite = df_rc[(df_rc["Num_Nos"] >= 5) & (df_rc["Num_Nos"] <= 18) & (df_rc["Rho_w"] > 1.0)]
         if not candidatos_elite.empty:
             idx_otimo = candidatos_elite["Rho_w"].idxmax()

@@ -101,7 +101,7 @@ class ConnectomeBuilder:
                     self.graph.add_node(
                         no,
                         tipo_funcional=self.classificar_funcao(no, tem_nmj=(peso_m > 0)),
-                        soma_pos=None,
+                        soma_pos=0.5,
                         regiao_soma="N/A",
                         span="N/A",
                         ganglio_ay="N/A",

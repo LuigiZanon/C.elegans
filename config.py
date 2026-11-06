@@ -41,7 +41,7 @@ PALETA_CORES_FUNCIONAIS = {
     "Faríngeo": "#9C27B0"                 # Roxo
 }
 
-# Coordenadas (X, Y) dos centros de cada cluster funcional na tela
+# Coordenadas (X, Y) dos centros de cada cluster funcional na tela (Modo 1: Clusters)
 CENTROS_GRUPOS_FUNCIONAIS = {
     "Sensorial": (-950, -120),             # Esquerda (Entrada sensorial)
     "Interneurônio": (0, -620),            # Topo-Centro (Processamento)

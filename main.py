@@ -1,5 +1,6 @@
 """
 Ponto de entrada principal (Main) para construção, análise e visualização do conectoma C. elegans.
+Todas as figuras e o HTML interativo multi-layout são salvos automaticamente na pasta 'outputs/'.
 """
 
 import os
@@ -44,17 +45,16 @@ def main() -> None:
     print("\nÚltimos degraus da curva Rich-Club Ponderada:")
     print(df_rich_club.tail(10).to_string(index=False))
 
-    # Salva também a tabela CSV do Rich-Club em outputs/
     caminho_csv_rc = os.path.join(OUTPUT_DIR, "rich_club_ponderado.csv")
     df_rich_club.to_csv(caminho_csv_rc, index=False)
     print(f"\nTabela Rich-Club salva em: '{caminho_csv_rc}'")
 
-    # 5. Visualizações salvas diretamente na pasta 'outputs/' sem interromper a execução
+    # 5. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
-    visualizer.plotar_matrizes_fluxo(
+    caminho_fluxo = visualizer.plotar_matrizes_fluxo(
         mat_quimica, mat_eletrica, ordem_classes, nome_arquivo="matrizes_fluxo.png"
     )
-    visualizer.plotar_rich_club_ponderado(
+    caminho_rc = visualizer.plotar_rich_club_ponderado(
         df_rich_club, k_otimo, membros_elite,
         camada="Combinada", nome_arquivo="rich_club_ponderado.png"
     )
@@ -62,7 +62,11 @@ def main() -> None:
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
         influentes=influentes,
-        membros_rich_club=set(membros_elite)
+        membros_rich_club=set(membros_elite),
+        graficos_png={
+            "Rich-Club Ponderado": caminho_rc,
+            "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo
+        }
     )
 
 
