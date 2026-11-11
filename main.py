@@ -4,10 +4,13 @@ Todas as figuras e o HTML interativo multi-layout são salvos automaticamente na
 """
 
 import os
+import statistics
 from config import OUTPUT_DIR
 from connectome_builder import ConnectomeBuilder
 from flow_analyzer import ConnectomeAnalyzer
 from visualizer import ConnectomeVisualizer
+from network_metrics import NetworkMetricsAnalyzer, SyntheticNetworkGenerator
+import networkx as nx
 
 
 def main() -> None:
@@ -69,6 +72,56 @@ def main() -> None:
         }
     )
 
+# =========================================================================
+    # 6. COMPARAÇÃO TOPOLÓGICA SIMPLES (1 REDE REAL VS 1 REDE SINTÉTICA)
+    # =========================================================================
+    print("\n" + "="*60)
+    print("  COMPARAÇÃO DIRETA: REDE REAL VS. MODELO ALEATÓRIO")
+    print("="*60)
+
+    # 1. PREPARAÇÃO DA REDE REAL
+    grafo_simples = nx.Graph(grafo_multi)
+    n_nos = grafo_simples.number_of_nodes()
+    n_arestas = grafo_simples.number_of_edges()
+    prob_conexao = nx.density(grafo_simples)
+    
+    clustering_real = NetworkMetricsAnalyzer.calcular_coeficiente_agrupamento_global(grafo_simples)
+
+    # 2. GERAÇÃO DE APENAS UMA REDE SINTÉTICA (MODELO NULO)
+    semente = 42
+    grafo_sintetico = SyntheticNetworkGenerator.gerar_rede_aleatoria(
+        n=n_nos, p=prob_conexao, seed=semente
+    )
+    
+    clustering_sintetico = NetworkMetricsAnalyzer.calcular_coeficiente_agrupamento_global(grafo_sintetico)
+    
+    # 3. CÁLCULO DA DIFERENÇA
+    razao = clustering_real / clustering_sintetico if clustering_sintetico > 0 else 0
+
+    # 4. RELATÓRIO SIMPLIFICADO
+    print("\n[1] PERFIL DA REDE REAL")
+    print("-" * 30)
+    print(f"• Nós (Vértices):         {n_nos}")
+    print(f"• Arestas Únicas:         {n_arestas}")
+    print(f"• Densidade (p):          {prob_conexao:.4f}")
+    print(f"• Agrupamento Global (C): {clustering_real:.4f}")
+
+    print("\n[2] PERFIL DA REDE SINTÉTICA ALEATÓRIA (Erdős-Rényi G(n,p))")
+    print("-" * 30)
+    print(f"• Agrupamento Teórico (p):~ {prob_conexao:.4f}")
+    print(f"• Agrupamento Obtido:     {clustering_sintetico:.4f}")
+
+    print("\n[3] RESULTADO DA COMPARAÇÃO")
+    print("-" * 30)
+    print(f"• O agrupamento da rede real é {razao:.2f} vezes maior que a rede aleatória.")
+    
+    if razao > 3: # Limiar heurístico comum para afirmar diferença substancial
+        print("• Conclusão: A rede possui forte agrupamento local (característica Small-World),")
+        print("  distanciando-se consideravelmente de uma formação aleatória.")
+    else:
+        print("• Conclusão: O agrupamento é próximo ao de uma rede aleatória,")
+        print("  sugerindo pouca formação de comunidades locais.")
+    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
