@@ -220,3 +220,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+#Relatório dos neuronios
+RELATORIO_NEURONIOS_E_GRAFOS.md
