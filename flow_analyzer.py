@@ -161,6 +161,110 @@ class ConnectomeAnalyzer:
             ascending=[False, False, False, True]
         ).reset_index(drop=True)
 
+    def ranking_estratificado_por_tipo(self, camada: str = "Combinada") -> pd.DataFrame:
+        """
+        Ranqueia os neurônios dentro de cada tipo funcional, usando métricas globais
+        calculadas sobre o grafo projetado (grau ponderado, PageRank e intermediação).
+
+        O "chefe" de cada tipo é o neurônio com o maior score composto (média dos três
+        percentis), com desempate determinístico por força de saída e, por fim, nome.
+        """
+        projetado = self._projetar_camada_influencia(camada)
+
+        if projetado.number_of_edges() == 0:
+            intermediacao = {n: 0.0 for n in projetado}
+            page_rank = {n: 0.0 for n in projetado}
+        else:
+            intermediacao = nx.betweenness_centrality(
+                projetado, weight="distance", normalized=True
+            )
+            page_rank = nx.pagerank(projetado, weight="weight")
+
+        forca_entrada = dict(projetado.in_degree(weight="weight"))
+        forca_saida = dict(projetado.out_degree(weight="weight"))
+
+        registros = []
+        for neuronio in projetado.nodes:
+            dados_no = self.graph.nodes[neuronio]
+            fe = forca_entrada[neuronio]
+            fs = forca_saida[neuronio]
+            registros.append({
+                "Neuronio": neuronio,
+                "Tipo": dados_no.get("tipo_funcional", "Desconhecido"),
+                "Grau_Ponderado": fe + fs,
+                "Forca_Entrada": fe,
+                "Forca_Saida": fs,
+                "PageRank": page_rank[neuronio],
+                "Intermediacao": intermediacao[neuronio],
+            })
+
+        colunas = [
+            "Tipo", "Neuronio", "Posicao_No_Tipo", "E_Chefe",
+            "Grau_Ponderado", "Forca_Entrada", "Forca_Saida",
+            "PageRank", "Intermediacao",
+            "Pct_Grau_Ponderado", "Pct_PageRank", "Pct_Intermediacao",
+            "Score_Chefe"
+        ]
+        resultados = pd.DataFrame(registros)
+        if resultados.empty:
+            return pd.DataFrame(columns=colunas)
+
+        # Percentis calculados dentro de cada tipo funcional (método average para empates).
+        resultados["Pct_Grau_Ponderado"] = resultados.groupby("Tipo")["Grau_Ponderado"].rank(pct=True, method="average")
+        resultados["Pct_PageRank"] = resultados.groupby("Tipo")["PageRank"].rank(pct=True, method="average")
+        resultados["Pct_Intermediacao"] = resultados.groupby("Tipo")["Intermediacao"].rank(pct=True, method="average")
+
+        # Score composto: média dos três percentis (garante um único chefe por tipo).
+        resultados["Score_Chefe"] = resultados[
+            ["Pct_Grau_Ponderado", "Pct_PageRank", "Pct_Intermediacao"]
+        ].mean(axis=1)
+
+        # Ordena os tipos pela hierarquia biológica padrão (extras em ordem alfabética).
+        ordem_tipos = self.obter_ordem_classes()
+        extras = sorted(set(resultados["Tipo"]) - set(ordem_tipos))
+        resultados["Tipo"] = pd.Categorical(resultados["Tipo"], categories=ordem_tipos + extras)
+
+        ordenados = resultados.sort_values(
+            ["Tipo", "Score_Chefe", "Forca_Saida", "Neuronio"],
+            ascending=[True, False, False, True]
+        )
+        ordenados["Posicao_No_Tipo"] = ordenados.groupby("Tipo").cumcount() + 1
+        ordenados["E_Chefe"] = ordenados["Posicao_No_Tipo"] == 1
+
+        return ordenados[colunas].reset_index(drop=True)
+
+    def resumo_chefes_por_tipo(self, camada: str = "Combinada") -> pd.DataFrame:
+        """
+        Retorna uma linha por tipo funcional com o neurônio chefe (maior Score_Chefe)
+        e o líder de cada métrica individual dentro do tipo.
+
+        Em caso de empate em uma métrica individual, o desempate segue a mesma
+        convenção do ranking composto (Score_Chefe, força de saída e nome).
+        """
+        colunas = [
+            "Tipo", "Chefe", "Score_Chefe",
+            "Lider_Grau_Ponderado", "Lider_PageRank", "Lider_Intermediacao"
+        ]
+        ranking = self.ranking_estratificado_por_tipo(camada=camada)
+        if ranking.empty:
+            return pd.DataFrame(columns=colunas)
+
+        chefes = ranking[ranking["E_Chefe"]].copy()
+        resumo = chefes[["Tipo", "Neuronio", "Score_Chefe"]].rename(columns={"Neuronio": "Chefe"})
+        resumo["Tipo"] = resumo["Tipo"].astype(str)
+
+        for coluna, rotulo in [
+            ("Grau_Ponderado", "Lider_Grau_Ponderado"),
+            ("PageRank", "Lider_PageRank"),
+            ("Intermediacao", "Lider_Intermediacao"),
+        ]:
+            maximo = ranking.groupby("Tipo")[coluna].transform("max")
+            lideres = ranking[ranking[coluna] == maximo].drop_duplicates("Tipo", keep="first")
+            mapa = dict(zip(lideres["Tipo"].astype(str), lideres["Neuronio"]))
+            resumo[rotulo] = resumo["Tipo"].map(mapa)
+
+        return resumo[colunas].reset_index(drop=True)
+
     @staticmethod
     def _randomizar_arestas_direcionadas(
         arestas: List[Tuple[str, str, float]],

@@ -6,6 +6,7 @@ e filtro de camadas do multigrafo (Química, Elétrica e Multiplex).
 
 import os
 import json
+import html
 import base64
 from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
@@ -46,6 +47,67 @@ class ConnectomeVisualizer:
             return ""
         with open(caminho_imagem, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
+
+    @staticmethod
+    def _formatar_celula(nome_coluna: str, valor) -> str:
+        """Formata o valor de uma célula da tabela HTML (numéricos com casas fixas, texto escapado)."""
+        if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+            return ""
+        if isinstance(valor, bool):
+            return "Sim" if valor else "Não"
+        if isinstance(valor, (int, np.integer)):
+            return html.escape(str(int(valor)))
+        if isinstance(valor, (float, np.floating)):
+            if nome_coluna in ("PageRank", "Intermediacao"):
+                texto = f"{float(valor):.4f}"
+            elif nome_coluna == "Score_Chefe":
+                texto = f"{float(valor):.3f}"
+            else:
+                texto = f"{float(valor):.2f}"
+            return html.escape(texto)
+        return html.escape(str(valor))
+
+    def _montar_tabela_html(self, df: pd.DataFrame, cor_por_tipo: Optional[Dict[str, str]] = None) -> str:
+        """Converte um DataFrame em uma tabela HTML com todos os valores escapados.
+
+        Linhas identificadas como "chefe" do tipo recebem borda esquerda colorida
+        (cor da paleta funcional), quando ``cor_por_tipo`` for fornecida.
+        """
+        if df is None or df.empty:
+            return ""
+        colunas = list(df.columns)
+        tem_e_chefe = "E_Chefe" in colunas
+        tem_posicao = "Posicao_No_Tipo" in colunas
+
+        linhas_html = []
+        for _, linha in df.iterrows():
+            if tem_e_chefe:
+                eh_chefe = bool(linha["E_Chefe"])
+            elif tem_posicao:
+                eh_chefe = int(linha["Posicao_No_Tipo"]) == 1
+            else:
+                eh_chefe = True  # ex.: tabela de resumo, onde cada linha é um chefe
+
+            estilo_primeira_celula = ""
+            if eh_chefe and cor_por_tipo:
+                tipo = str(linha.get("Tipo", ""))
+                cor = cor_por_tipo.get(tipo)
+                if cor:
+                    estilo_primeira_celula = f' style="border-left:4px solid {html.escape(cor)};"'
+
+            celulas = []
+            for i, coluna in enumerate(colunas):
+                estilo = estilo_primeira_celula if i == 0 else ""
+                celulas.append(f"<td{estilo}>{self._formatar_celula(coluna, linha[coluna])}</td>")
+            linhas_html.append("<tr>" + "".join(celulas) + "</tr>")
+
+        cabecalho = "".join(f"<th>{html.escape(str(c))}</th>" for c in colunas)
+        return (
+            '<div style="overflow-x:auto;">'
+            f'<table class="tabela-ranking"><thead><tr>{cabecalho}</tr></thead>'
+            f'<tbody>{"".join(linhas_html)}</tbody></table>'
+            "</div>"
+        )
 
     def _calcular_forca_por_camada(self) -> Tuple[Dict[str, float], Dict[str, float]]:
         """Calcula a força sináptica total (entrada + saída) de cada nó nas camadas Química e Elétrica."""
@@ -380,13 +442,18 @@ class ConnectomeVisualizer:
         notebook: bool = False,
         influentes: Optional[Dict[str, float]] = None,
         membros_rich_club: Optional[Set[str]] = None,
-        graficos_png: Optional[Dict[str, str]] = None
+        graficos_png: Optional[Dict[str, str]] = None,
+        tabelas_ranking: Optional[Dict[str, pd.DataFrame]] = None
     ) -> str:
         """
         Gera HTML em tela cheia na pasta outputs com caixas de seleção (<select>) para:
           - Alternar entre 5 modos de exibição (layouts topológicos/anatômicos)
           - Filtrar/colorir as camadas do multigrafo (Química, Elétrica e Multiplex)
           - Visualizar os gráficos PNG de métricas em modal integrado
+          - Consultar as tabelas de ranking por tipo funcional em abas do mesmo modal
+
+        O dicionário ``tabelas_ranking`` mapeia o título da aba para um DataFrame;
+        cada DataFrame vira uma aba HTML (valores escapados) após as abas de PNG.
         """
         caminho_saida = self._resolver_caminho(arquivo_saida)
         rc_set = set(membros_rich_club) if membros_rich_club else set()
@@ -523,6 +590,26 @@ class ConnectomeVisualizer:
                 conteudos_abas += (
                     f'<div id="{id_aba}" class="conteudo-aba" style="display:{display_stl};">'
                     f'<img src="data:image/png;base64,{b64}" alt="{titulo_aba}" />'
+                    f'</div>'
+                )
+
+        # Abas de ranking por tipo funcional: tabelas HTML estáticas (sem interação extra),
+        # reutilizando o mesmo JS de troca de abas do modal
+        contador_tabela = 0
+        if tabelas_ranking:
+            for titulo_aba, df_tabela in tabelas_ranking.items():
+                corpo_tabela = self._montar_tabela_html(df_tabela, cor_por_tipo=PALETA_CORES_FUNCIONAIS)
+                if not corpo_tabela:
+                    continue
+                id_aba = f"aba_tabela_{contador_tabela}"
+                contador_tabela += 1
+                botoes_abas += (
+                    f'<button class="btn-aba" '
+                    f'onclick="trocarAba(event, \'{id_aba}\')">{html.escape(titulo_aba)}</button>'
+                )
+                conteudos_abas += (
+                    f'<div id="{id_aba}" class="conteudo-aba" style="display:none;">'
+                    f'{corpo_tabela}'
                     f'</div>'
                 )
 
@@ -727,6 +814,26 @@ class ConnectomeVisualizer:
                 max-height: 76vh;
                 object-fit: contain;
                 border-radius: 4px;
+            }}
+            .tabela-ranking {{
+                border-collapse: collapse;
+                margin: 0 auto;
+                font-size: 13px;
+                text-align: left;
+            }}
+            .tabela-ranking th,
+            .tabela-ranking td {{
+                padding: 6px 12px;
+                border-bottom: 1px solid #e0e0e0;
+                white-space: nowrap;
+            }}
+            .tabela-ranking th {{
+                background: #2c2c2c;
+                color: #fff;
+                font-weight: 600;
+            }}
+            .tabela-ranking tr:nth-child(even) td {{
+                background: #f4f4f4;
             }}
         </style>
 

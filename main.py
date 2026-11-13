@@ -52,6 +52,30 @@ def main() -> None:
     df_rich_club.to_csv(caminho_csv_rc, index=False)
     print(f"\nTabela Rich-Club salva em: '{caminho_csv_rc}'")
 
+    # 4b. Ranking estratificado por tipo funcional: métricas globais na camada combinada,
+    #     com um "chefe" único por tipo (score composto dos percentis)
+    ranking_tipos = analyzer.ranking_estratificado_por_tipo(camada="Combinada")
+    resumo_chefes = analyzer.resumo_chefes_por_tipo(camada="Combinada")
+
+    print("\n=== RANKING ESTRATIFICADO POR TIPO FUNCIONAL (MÉTRICAS GLOBAIS, CAMADA COMBINADA) ===")
+    colunas_top = [
+        "Tipo", "Neuronio", "Posicao_No_Tipo", "Grau_Ponderado",
+        "PageRank", "Intermediacao", "Score_Chefe"
+    ]
+    print(ranking_tipos[ranking_tipos["Posicao_No_Tipo"] <= 5][colunas_top].to_string(index=False))
+
+    print("\n=== CHEFE DE CADA CATEGORIA (SCORE COMPOSTO + LÍDERES POR MÉTRICA) ===")
+    print(resumo_chefes.to_string(index=False))
+
+    caminho_csv_ranking = os.path.join(OUTPUT_DIR, "ranking_estratificado.csv")
+    ranking_tipos.to_csv(caminho_csv_ranking, index=False)
+    caminho_csv_chefes = os.path.join(OUTPUT_DIR, "chefes_por_tipo.csv")
+    resumo_chefes.to_csv(caminho_csv_chefes, index=False)
+    print(f"\nTabelas salvas em: '{caminho_csv_ranking}' e '{caminho_csv_chefes}'")
+
+    # Os chefes de cada tipo substituem os destaques da camada química no destaque do HTML.
+    influentes = dict(zip(resumo_chefes["Chefe"], resumo_chefes["Score_Chefe"]))
+
     # 5. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
@@ -69,6 +93,13 @@ def main() -> None:
         graficos_png={
             "Rich-Club Ponderado": caminho_rc,
             "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo
+        },
+        tabelas_ranking={
+            "🏆 Chefes por Tipo": resumo_chefes,
+            "Top 5 por Tipo": ranking_tipos[ranking_tipos["Posicao_No_Tipo"] <= 5][
+                ["Tipo", "Posicao_No_Tipo", "Neuronio", "Grau_Ponderado",
+                 "PageRank", "Intermediacao", "Score_Chefe"]
+            ]
         }
     )
 
