@@ -89,3 +89,16 @@ var options = {
   }
 }
 """
+
+SYNTHETIC_BENCHMARK_CONFIG = {
+    "n_runs": 30,             # Quantidade de execuções Monte Carlo por modelo sintético
+    "seed_base": 42,          # Semente determinística base (execução i usa seed_base + i)
+    "ws_rewiring_p": 0.10,    # Probabilidade de religação canônica para Watts-Strogatz
+}
+
+PALETA_MODELOS_SINTETICOS = {
+    "C. elegans (Real)": "#EA4335",   # Vermelho destaque
+    "Erdős-Rényi (ER)": "#757575",    # Cinza neutro (aleatório)
+    "Watts-Strogatz (WS)": "#34A853", # Verde (Small-World)
+    "Barabási-Albert (BA)": "#4285F4" # Azul (Livre de Escala)
+}

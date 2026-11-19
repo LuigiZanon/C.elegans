@@ -8,7 +8,8 @@ import os
 import json
 import html
 import base64
-from typing import Dict, List, Optional, Set, Tuple
+import textwrap
+from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -20,6 +21,7 @@ from config import (
     OUTPUT_DIR,
     ORDEM_CLASSES_PADRAO,
     PALETA_CORES_FUNCIONAIS,
+    PALETA_MODELOS_SINTETICOS,
     CENTROS_GRUPOS_FUNCIONAIS,
     PYVIS_PHYSICS_OPTIONS
 )
@@ -431,6 +433,379 @@ class ConnectomeVisualizer:
         fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Gráfico do Coeficiente Rich-Club Ponderado salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_comparacao_redes_sinteticas(
+        self,
+        df_comparacao: pd.DataFrame,
+        diagnostico: Dict[str, Any],
+        nome_arquivo: str = "comparacao_redes_sinteticas.png"
+    ) -> str:
+        """
+        Gera painel comparativo 2x3 das métricas topológicas do conectoma real contra
+        modelos sintéticos equivalentes (ER, WS e BA), incluindo cartão de diagnóstico.
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, axes = plt.subplots(2, 3, figsize=(16, 9.5))
+        axes_flat = axes.ravel()
+
+        modelos = list(df_comparacao["Modelo"].values)
+        rotulos_curtos = {
+            "C. elegans (Real)": "Real",
+            "Erdős-Rényi (ER)": "ER",
+            "Watts-Strogatz (WS)": "WS",
+            "Barabási-Albert (BA)": "BA",
+        }
+        x_labels = [rotulos_curtos.get(m, m) for m in modelos]
+        cores = [PALETA_MODELOS_SINTETICOS.get(m, "#666666") for m in modelos]
+        x_pos = np.arange(len(modelos))
+
+        paineis = [
+            (
+                "Agrupamento_C_Media",
+                "Agrupamento_C_Std",
+                r"Coeficiente de Agrupamento ($C$)",
+                r"$C$",
+                "{:.3f}",
+                False,
+            ),
+            (
+                "Caminho_Medio_L_Media",
+                "Caminho_Medio_L_Std",
+                r"Caminho Mínimo Médio ($L$)",
+                r"$L$",
+                "{:.3f}",
+                False,
+            ),
+            (
+                "Eficiencia_Global_Media",
+                "Eficiencia_Global_Std",
+                r"Eficiência Global ($E_{\mathrm{glob}}$)",
+                r"$E_{\mathrm{glob}}$",
+                "{:.3f}",
+                False,
+            ),
+            (
+                "Assortatividade_r_Media",
+                "Assortatividade_r_Std",
+                r"Assortatividade de Grau ($r$)",
+                r"$r$",
+                "{:+.3f}",
+                True,
+            ),
+            (
+                "Heterogeneidade_Media",
+                "Heterogeneidade_Std",
+                r"Heterogeneidade de Grau ($\kappa = \langle k^2 \rangle / \langle k \rangle^2$)",
+                r"$\kappa$",
+                "{:.2f}",
+                False,
+            ),
+        ]
+
+        for idx, (col_media, col_std, titulo, ylabel, fmt, linha_zero) in enumerate(paineis):
+            ax = axes_flat[idx]
+            medias = df_comparacao[col_media].astype(float).values
+            stds = df_comparacao[col_std].astype(float).values
+
+            barras = ax.bar(
+                x_pos,
+                medias,
+                yerr=stds,
+                capsize=5,
+                color=cores,
+                edgecolor="#222222",
+                linewidth=0.9,
+                alpha=0.90,
+                error_kw={"elinewidth": 1.3, "ecolor": "#222222"},
+            )
+
+            if linha_zero:
+                ax.axhline(0.0, color="#222222", linestyle="--", linewidth=1.1, alpha=0.8)
+
+            # Ajusta limites verticais para acomodar rótulos numéricos sem sobreposição
+            y_topo = float(np.max(medias + stds))
+            y_base = float(np.min(medias - stds))
+            amplitude = max(y_topo - y_base, 0.05)
+
+            if linha_zero:
+                ax.set_ylim(min(y_base, 0.0) - 0.25 * amplitude, max(y_topo, 0.0) + 0.25 * amplitude)
+            else:
+                ax.set_ylim(0.0, y_topo + 0.22 * max(y_topo, amplitude))
+
+            deslocamento = 0.04 * (ax.get_ylim()[1] - ax.get_ylim()[0])
+            for barra, media, std in zip(barras, medias, stds):
+                cx = barra.get_x() + barra.get_width() / 2.0
+                if media >= 0:
+                    y_txt = media + std + deslocamento * 0.6
+                    va = "bottom"
+                else:
+                    y_txt = media - std - deslocamento * 0.6
+                    va = "top"
+                ax.text(
+                    cx,
+                    y_txt,
+                    fmt.format(media),
+                    ha="center",
+                    va=va,
+                    fontsize=9.5,
+                    fontweight="bold",
+                    color="#1f1f1f",
+                )
+
+            ax.set_title(titulo, fontsize=11.5, fontweight="bold", pad=10)
+            ax.set_ylabel(ylabel, fontsize=11, fontweight="bold")
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(x_labels, fontsize=10, fontweight="bold")
+            ax.grid(axis="y", alpha=0.3, linestyle=":")
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+        # 6º painel: Cartão de diagnóstico topológico formal
+        ax_card = axes_flat[5]
+        ax_card.axis("off")
+
+        veredito_quebrado = "\n".join(
+            textwrap.wrap(diagnostico["veredito_classificacao"], width=46)
+        )
+        linhas_card = [
+            "DIAGNÓSTICO TOPOLÓGICO FORMAL",
+            "─" * 34,
+            rf"Calibração: $N={diagnostico['N']}$, $M={diagnostico['M']}$, $\langle k \rangle={diagnostico['k_medio']:.2f}$",
+            rf"WS: $k={diagnostico['k_ws']}$, $p={diagnostico['p_ws']:.2f}$  |  BA: $m={diagnostico['m_ba']}$",
+            "",
+            rf"$\bullet\ C_{{\mathrm{{real}}}} / C_{{\mathrm{{ER}}}} = {diagnostico['razao_C_ER']:.2f}\times$",
+            rf"$\bullet\ L_{{\mathrm{{real}}}} / L_{{\mathrm{{ER}}}} = {diagnostico['razao_L_ER']:.2f}\times$",
+            rf"$\bullet\ \sigma_{{\mathrm{{SW}}}} = {diagnostico['sigma_small_world']:.2f}$  (critério: $\sigma > 1$)",
+            rf"$\bullet\ \omega_{{\mathrm{{SW}}}} = {diagnostico['omega_small_world']:+.3f}$  (critério: $|\omega| \leq 0.5$)",
+            rf"$\bullet\ \kappa_{{\mathrm{{real}}}} = {diagnostico['heterogeneidade_real']:.2f}$  (ER={diagnostico['heterogeneidade_ER']:.2f}, BA={diagnostico['heterogeneidade_BA']:.2f})",
+            "",
+            "Veredito:",
+            veredito_quebrado,
+        ]
+        texto_card = "\n".join(linhas_card)
+
+        ax_card.text(
+            0.03,
+            0.97,
+            texto_card,
+            transform=ax_card.transAxes,
+            fontsize=9.4,
+            verticalalignment="top",
+            horizontalalignment="left",
+            color="#1f2933",
+            linespacing=1.35,
+            bbox={
+                "boxstyle": "round,pad=0.65",
+                "facecolor": "#f8f9fa",
+                "edgecolor": "#c5ccd3",
+                "linewidth": 1.3,
+            },
+        )
+
+        fig.suptitle(
+            "Comparação Topológica: Conectoma do C. elegans vs. Modelos Sintéticos Equivalentes",
+            fontsize=14,
+            fontweight="bold",
+            y=0.99,
+        )
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de comparação com redes sintéticas salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_distribuicao_grau_comparativa(
+        self,
+        graus_por_modelo: Dict[str, np.ndarray],
+        diagnostico: Dict[str, Any],
+        nome_arquivo: str = "distribuicao_grau_comparativa.png"
+    ) -> str:
+        """
+        Plota a distribuição de grau comparativa em dois painéis:
+          - Esquerda: PMF / densidade em escala linear com linha vertical em <k>
+          - Direita: CCDF P(K >= k) em escala log-log com resumo dos testes de cauda
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.2))
+
+        modelo_real = "C. elegans (Real)"
+        graus_real = np.asarray(graus_por_modelo[modelo_real], dtype=int)
+        grau_max_global = int(
+            max(np.max(v) for v in graus_por_modelo.values() if len(v) > 0)
+        )
+
+        # --- Painel Esquerdo: Escala Linear (PMF / Densidade) ---
+        bins = np.arange(0, grau_max_global + 3, 2) - 0.5
+        ax1.hist(
+            graus_real,
+            bins=bins,
+            density=True,
+            color=PALETA_MODELOS_SINTETICOS[modelo_real],
+            alpha=0.35,
+            edgecolor=PALETA_MODELOS_SINTETICOS[modelo_real],
+            linewidth=1.1,
+            label=modelo_real,
+        )
+
+        estilos_sint = {
+            "Erdős-Rényi (ER)": {"linestyle": "--", "marker": "o", "markersize": 3.5},
+            "Watts-Strogatz (WS)": {"linestyle": "-.", "marker": "^", "markersize": 3.5},
+            "Barabási-Albert (BA)": {"linestyle": "-", "marker": "s", "markersize": 3.2},
+        }
+
+        for nome_modelo, estilo in estilos_sint.items():
+            if nome_modelo not in graus_por_modelo:
+                continue
+            graus_m = np.asarray(graus_por_modelo[nome_modelo], dtype=int)
+            k_vals, contagens = np.unique(graus_m, return_counts=True)
+            pmf = contagens / float(len(graus_m))
+            passo = max(1, len(k_vals) // 25)
+            ax1.plot(
+                k_vals,
+                pmf,
+                color=PALETA_MODELOS_SINTETICOS[nome_modelo],
+                lw=2.1,
+                linestyle=estilo["linestyle"],
+                marker=estilo["marker"],
+                markersize=estilo["markersize"],
+                markevery=passo,
+                label=nome_modelo,
+            )
+
+        k_medio = float(diagnostico["k_medio"])
+        ax1.axvline(
+            k_medio,
+            color="#222222",
+            linestyle=":",
+            lw=1.8,
+            label=rf"Grau médio $\langle k \rangle = {k_medio:.2f}$",
+        )
+
+        ax1.set_title("Distribuição de Grau (Escala Linear — PMF)", fontsize=12, fontweight="bold")
+        ax1.set_xlabel(r"Grau ($k$)", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(r"Probabilidade $P(K = k)$", fontsize=11, fontweight="bold")
+        ax1.set_xlim(left=0)
+        ax1.grid(True, alpha=0.3, linestyle=":")
+        ax1.legend(loc="upper right", fontsize=9.2)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel Direito: Escala Log-Log (CCDF P(K >= k)) ---
+        ordem_plot = [
+            "Erdős-Rényi (ER)",
+            "Watts-Strogatz (WS)",
+            "Barabási-Albert (BA)",
+            modelo_real,
+        ]
+        estilos_ccdf = {
+            "C. elegans (Real)": {
+                "lw": 2.4,
+                "linestyle": "-",
+                "marker": "o",
+                "markersize": 4.2,
+                "zorder": 5,
+            },
+            "Erdős-Rényi (ER)": {
+                "lw": 2.0,
+                "linestyle": "--",
+                "marker": None,
+                "markersize": 0,
+                "zorder": 3,
+            },
+            "Watts-Strogatz (WS)": {
+                "lw": 2.0,
+                "linestyle": "-.",
+                "marker": None,
+                "markersize": 0,
+                "zorder": 3,
+            },
+            "Barabási-Albert (BA)": {
+                "lw": 2.1,
+                "linestyle": "-",
+                "marker": None,
+                "markersize": 0,
+                "zorder": 4,
+            },
+        }
+
+        for nome_modelo in ordem_plot:
+            if nome_modelo not in graus_por_modelo:
+                continue
+            graus_m = np.asarray(graus_por_modelo[nome_modelo], dtype=int)
+            graus_pos = graus_m[graus_m > 0]
+            if len(graus_pos) == 0:
+                continue
+            k_unicos = np.unique(graus_pos)
+            # CCDF vetorizada via searchsorted sobre vetor ordenado
+            graus_ord = np.sort(graus_pos)
+            n_total = float(len(graus_ord))
+            idx_inicio = np.searchsorted(graus_ord, k_unicos, side="left")
+            ccdf = (n_total - idx_inicio) / n_total
+
+            est = estilos_ccdf[nome_modelo]
+            ax2.loglog(
+                k_unicos,
+                ccdf,
+                color=PALETA_MODELOS_SINTETICOS[nome_modelo],
+                lw=est["lw"],
+                linestyle=est["linestyle"],
+                marker=est["marker"],
+                markersize=est["markersize"],
+                zorder=est["zorder"],
+                label=nome_modelo,
+            )
+
+        k_min = int(diagnostico["k_min_cauda"])
+        ax2.axvline(
+            k_min,
+            color="#444444",
+            linestyle=":",
+            lw=1.6,
+            label=rf"Início da cauda ($k_{{\min}} = {k_min}$)",
+        )
+
+        texto_cauda = "\n".join([
+            "Análise da Cauda (Real)",
+            rf"$k_{{\min}} = {k_min}$",
+            rf"$\hat{{\gamma}}_{{\mathrm{{MLE}}}} = {diagnostico['gamma_mle']:.2f}$",
+            rf"$R^2_{{\mathrm{{log-log}}}} = {diagnostico['r2_log_log']:.3f}$",
+            rf"$R^2_{{\mathrm{{semi-log}}}} = {diagnostico['r2_semi_log']:.3f}$",
+            rf"$\Delta \ell = {diagnostico['delta_log_likelihood']:+.2f}$",
+            rf"$\kappa_{{\mathrm{{real}}}} = {diagnostico['heterogeneidade_real']:.2f}$",
+        ])
+        ax2.text(
+            0.04,
+            0.05,
+            texto_cauda,
+            transform=ax2.transAxes,
+            fontsize=9.3,
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            bbox={
+                "boxstyle": "round,pad=0.5",
+                "facecolor": "#f8f9fa",
+                "edgecolor": "#bbbbbb",
+                "alpha": 0.95,
+            },
+        )
+
+        ax2.set_title(
+            r"Cauda da Distribuição de Grau (Escala Log-Log — CCDF $P(K \geq k)$)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax2.set_xlabel(r"Grau ($k$) [escala log]", fontsize=11, fontweight="bold")
+        ax2.set_ylabel(r"$P(K \geq k)$ [escala log]", fontsize=11, fontweight="bold")
+        ax2.grid(True, which="both", alpha=0.25, linestyle=":")
+        ax2.legend(loc="upper right", fontsize=9.2)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de distribuição de grau comparativa salvo em: '{caminho_saida}'")
         return caminho_saida
 
     def exportar_html_interativo(

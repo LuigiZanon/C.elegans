@@ -4,13 +4,12 @@ Todas as figuras e o HTML interativo multi-layout são salvos automaticamente na
 """
 
 import os
-import statistics
-from config import OUTPUT_DIR
+import json
+from config import OUTPUT_DIR, SYNTHETIC_BENCHMARK_CONFIG
 from connectome_builder import ConnectomeBuilder
 from flow_analyzer import ConnectomeAnalyzer
+from synthetic_benchmark import SyntheticNetworkBenchmark
 from visualizer import ConnectomeVisualizer
-from network_metrics import NetworkMetricsAnalyzer, SyntheticNetworkGenerator
-import networkx as nx
 
 
 def main() -> None:
@@ -76,7 +75,22 @@ def main() -> None:
     # Os chefes de cada tipo substituem os destaques da camada química no destaque do HTML.
     influentes = dict(zip(resumo_chefes["Chefe"], resumo_chefes["Score_Chefe"]))
 
-    # 5. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
+    # 5. Benchmark comparativo com redes sintéticas equivalentes (ER, WS e BA) via Monte Carlo
+    benchmark = SyntheticNetworkBenchmark(grafo_multi, **SYNTHETIC_BENCHMARK_CONFIG)
+    df_sinteticas, graus_por_modelo = benchmark.executar_benchmark()
+    diagnostico_topo = benchmark.calcular_diagnostico_topologico(
+        df_sinteticas, graus_por_modelo
+    )
+    benchmark.exibir_relatorio_console(df_sinteticas, diagnostico_topo)
+
+    caminho_csv_sint = os.path.join(OUTPUT_DIR, "comparacao_redes_sinteticas.csv")
+    df_sinteticas.to_csv(caminho_csv_sint, index=False)
+    caminho_json_diag = os.path.join(OUTPUT_DIR, "diagnostico_topologico.json")
+    with open(caminho_json_diag, "w", encoding="utf-8") as f:
+        json.dump(diagnostico_topo, f, indent=2, ensure_ascii=False)
+    print(f"Benchmark salvo em: '{caminho_csv_sint}' e '{caminho_json_diag}'")
+
+    # 6. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
         mat_quimica, mat_eletrica, ordem_classes, nome_arquivo="matrizes_fluxo.png"
@@ -85,6 +99,12 @@ def main() -> None:
         df_rich_club, k_otimo, membros_elite,
         camada="Combinada", nome_arquivo="rich_club_ponderado.png"
     )
+    caminho_sinteticas = visualizer.plotar_comparacao_redes_sinteticas(
+        df_sinteticas, diagnostico_topo, nome_arquivo="comparacao_redes_sinteticas.png"
+    )
+    caminho_dist_grau = visualizer.plotar_distribuicao_grau_comparativa(
+        graus_por_modelo, diagnostico_topo, nome_arquivo="distribuicao_grau_comparativa.png"
+    )
     visualizer.exportar_html_interativo(
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
@@ -92,7 +112,9 @@ def main() -> None:
         membros_rich_club=set(membros_elite),
         graficos_png={
             "Rich-Club Ponderado": caminho_rc,
-            "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo
+            "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo,
+            "Comparação com Redes Sintéticas": caminho_sinteticas,
+            "Distribuição de Grau (Log-Log)": caminho_dist_grau,
         },
         tabelas_ranking={
             "🏆 Chefes por Tipo": resumo_chefes,
@@ -103,56 +125,6 @@ def main() -> None:
         }
     )
 
-# =========================================================================
-    # 6. COMPARAÇÃO TOPOLÓGICA SIMPLES (1 REDE REAL VS 1 REDE SINTÉTICA)
-    # =========================================================================
-    print("\n" + "="*60)
-    print("  COMPARAÇÃO DIRETA: REDE REAL VS. MODELO ALEATÓRIO")
-    print("="*60)
-
-    # 1. PREPARAÇÃO DA REDE REAL
-    grafo_simples = nx.Graph(grafo_multi)
-    n_nos = grafo_simples.number_of_nodes()
-    n_arestas = grafo_simples.number_of_edges()
-    prob_conexao = nx.density(grafo_simples)
-    
-    clustering_real = NetworkMetricsAnalyzer.calcular_coeficiente_agrupamento_global(grafo_simples)
-
-    # 2. GERAÇÃO DE APENAS UMA REDE SINTÉTICA (MODELO NULO)
-    semente = 42
-    grafo_sintetico = SyntheticNetworkGenerator.gerar_rede_aleatoria(
-        n=n_nos, p=prob_conexao, seed=semente
-    )
-    
-    clustering_sintetico = NetworkMetricsAnalyzer.calcular_coeficiente_agrupamento_global(grafo_sintetico)
-    
-    # 3. CÁLCULO DA DIFERENÇA
-    razao = clustering_real / clustering_sintetico if clustering_sintetico > 0 else 0
-
-    # 4. RELATÓRIO SIMPLIFICADO
-    print("\n[1] PERFIL DA REDE REAL")
-    print("-" * 30)
-    print(f"• Nós (Vértices):         {n_nos}")
-    print(f"• Arestas Únicas:         {n_arestas}")
-    print(f"• Densidade (p):          {prob_conexao:.4f}")
-    print(f"• Agrupamento Global (C): {clustering_real:.4f}")
-
-    print("\n[2] PERFIL DA REDE SINTÉTICA ALEATÓRIA (Erdős-Rényi G(n,p))")
-    print("-" * 30)
-    print(f"• Agrupamento Teórico (p):~ {prob_conexao:.4f}")
-    print(f"• Agrupamento Obtido:     {clustering_sintetico:.4f}")
-
-    print("\n[3] RESULTADO DA COMPARAÇÃO")
-    print("-" * 30)
-    print(f"• O agrupamento da rede real é {razao:.2f} vezes maior que a rede aleatória.")
-    
-    if razao > 3: # Limiar heurístico comum para afirmar diferença substancial
-        print("• Conclusão: A rede possui forte agrupamento local (característica Small-World),")
-        print("  distanciando-se consideravelmente de uma formação aleatória.")
-    else:
-        print("• Conclusão: O agrupamento é próximo ao de uma rede aleatória,")
-        print("  sugerindo pouca formação de comunidades locais.")
-    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
