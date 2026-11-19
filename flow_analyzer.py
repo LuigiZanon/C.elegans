@@ -2,7 +2,7 @@
 Módulo de análise estatística, resumo topológico, influência e Rich-Club Ponderado.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -17,19 +17,32 @@ class ConnectomeAnalyzer:
         self.agrupar_comando = agrupar_comando
         self.df_fluxo: pd.DataFrame = self._extrair_dataframe_fluxo()
 
+    def _distancia_soma(self, u: str, v: str) -> float:
+        """Distância física longitudinal |soma_pos(u) - soma_pos(v)|, limitada a [0, 1]."""
+        pos_u = self.graph.nodes[u].get("soma_pos")
+        pos_v = self.graph.nodes[v].get("soma_pos")
+        du = min(max(float(pos_u if pos_u is not None else 0.5), 0.0), 1.0)
+        dv = min(max(float(pos_v if pos_v is not None else 0.5), 0.0), 1.0)
+        return abs(du - dv)
+
     def _extrair_dataframe_fluxo(self) -> pd.DataFrame:
-        """Extrai todas as multi-arestas com suas classes de origem, destino, camada e peso."""
+        """Extrai todas as multi-arestas com classes, camada, peso e custo de cabeamento."""
         registros = []
         for u, v, camada, dados in self.graph.edges(keys=True, data=True):
             tipo_u = self.graph.nodes[u].get("tipo_funcional", "Desconhecido")
             tipo_v = self.graph.nodes[v].get("tipo_funcional", "Desconhecido")
             peso = dados.get("weight", 1)
+            distancia = self._distancia_soma(u, v)
 
             registros.append({
+                "Neuronio_Origem": u,
+                "Neuronio_Destino": v,
                 "Origem": tipo_u,
                 "Destino": tipo_v,
                 "Camada": camada,
                 "Peso_Sinaptico": peso,
+                "Distancia_Soma": distancia,
+                "Custo_Cabeamento": float(peso) * distancia,
                 "Arestas": 1
             })
 
@@ -45,6 +58,51 @@ class ConnectomeAnalyzer:
             return []
         presentes = set(self.df_fluxo["Origem"].unique()) | set(self.df_fluxo["Destino"].unique())
         return [c for c in ORDEM_CLASSES_PADRAO if c in presentes]
+
+    def calcular_custo_cabeamento(self, camada: Optional[str] = None) -> pd.DataFrame:
+        """
+        Retorna o custo de cabeamento espacial por multi-aresta:
+        peso sináptico × distância longitudinal entre os somas (soma_pos).
+
+        Se ``camada`` for informada ('Quimica' ou 'Eletrica'), filtra por ela.
+        """
+        colunas = [
+            "Neuronio_Origem", "Neuronio_Destino", "Origem", "Destino",
+            "Camada", "Peso_Sinaptico", "Distancia_Soma", "Custo_Cabeamento"
+        ]
+        if self.df_fluxo.empty:
+            return pd.DataFrame(columns=colunas)
+
+        df = self.df_fluxo
+        if camada is not None:
+            df = df[df["Camada"] == camada]
+        return df[colunas].reset_index(drop=True)
+
+    def exibir_resumo_custo_cabeamento(self, top_n: int = 10) -> None:
+        """Imprime no console o custo total de cabeamento por camada e as conexões mais caras."""
+        if self.df_fluxo.empty:
+            print("Nenhuma conexão disponível para cálculo de custo de cabeamento.")
+            return
+
+        print("\n=== CUSTO DE CABEAMENTO ESPACIAL (Peso Sináptico × Distância entre Somas) ===")
+        for camada in ("Quimica", "Eletrica"):
+            sub = self.df_fluxo[self.df_fluxo["Camada"] == camada]
+            if sub.empty:
+                continue
+            peso_total = float(sub["Peso_Sinaptico"].sum())
+            custo_total = float(sub["Custo_Cabeamento"].sum())
+            dist_media = custo_total / peso_total if peso_total > 0 else 0.0
+            print(
+                f"Camada {camada}: custo total = {custo_total:.1f} | "
+                f"distância média ponderada = {dist_media:.3f}"
+            )
+
+        top = self.df_fluxo.nlargest(top_n, "Custo_Cabeamento")
+        print(f"\nTop {top_n} conexões por custo de cabeamento:")
+        print(top[
+            ["Neuronio_Origem", "Neuronio_Destino", "Camada",
+             "Peso_Sinaptico", "Distancia_Soma", "Custo_Cabeamento"]
+        ].to_string(index=False))
 
     def criar_matriz_fluxo(self, camada: str, metrica: str = "Peso_Sinaptico") -> pd.DataFrame:
         """Gera a matriz origem -> destino para uma camada ('Quimica' ou 'Eletrica')."""

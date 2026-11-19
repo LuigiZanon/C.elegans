@@ -73,6 +73,13 @@ def main() -> None:
     resumo_chefes.to_csv(caminho_csv_chefes, index=False)
     print(f"\nTabelas salvas em: '{caminho_csv_ranking}' e '{caminho_csv_chefes}'")
 
+    # 4c. Custo de cabeamento espacial: peso sináptico × distância longitudinal entre somas
+    df_custo = analyzer.calcular_custo_cabeamento()
+    analyzer.exibir_resumo_custo_cabeamento(top_n=10)
+    caminho_csv_custo = os.path.join(OUTPUT_DIR, "custo_cabeamento.csv")
+    df_custo.to_csv(caminho_csv_custo, index=False)
+    print(f"\nCusto de cabeamento salvo em: '{caminho_csv_custo}'")
+
     # Os chefes de cada tipo substituem os destaques da camada química no destaque do HTML.
     influentes = dict(zip(resumo_chefes["Chefe"], resumo_chefes["Score_Chefe"]))
 
@@ -99,6 +106,10 @@ def main() -> None:
             "Top 5 por Tipo": ranking_tipos[ranking_tipos["Posicao_No_Tipo"] <= 5][
                 ["Tipo", "Posicao_No_Tipo", "Neuronio", "Grau_Ponderado",
                  "PageRank", "Intermediacao", "Score_Chefe"]
+            ],
+            "💰 Top 20 Custo de Cabeamento": df_custo.nlargest(20, "Custo_Cabeamento")[
+                ["Neuronio_Origem", "Neuronio_Destino", "Camada",
+                 "Peso_Sinaptico", "Distancia_Soma", "Custo_Cabeamento"]
             ]
         }
     )
