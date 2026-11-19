@@ -820,7 +820,7 @@ class ConnectomeVisualizer:
         """
         Gera HTML em tela cheia na pasta outputs com caixas de seleção (<select>) para:
           - Alternar entre 5 modos de exibição (layouts topológicos/anatômicos)
-          - Filtrar/colorir as camadas do multigrafo (Química, Elétrica e Multiplex)
+          - Filtrar/colorir as camadas do multigrafo (Química, Elétrica, Multiplex ou Custo de Cabeamento)
           - Visualizar os gráficos PNG de métricas em modal integrado
           - Consultar as tabelas de ranking por tipo funcional em abas do mesmo modal
 
@@ -915,19 +915,32 @@ class ConnectomeVisualizer:
                     arrows={"to": {"enabled": False}}
                 )
 
-        # Consolida arestas registrando separadamente os pesos Químico e Elétrico para o filtro dinâmico JS
+        # Consolida arestas registrando separadamente os pesos Químico e Elétrico para o filtro dinâmico JS,
+        # além do custo de cabeamento espacial (peso sináptico × distância longitudinal entre somas)
         for u, v, k, d in self.graph.edges(keys=True, data=True):
             peso = int(d.get("weight", 1))
             camada = d.get("synapse_type", k)
             pq = peso if camada == "Quimica" else 0
             pe = peso if camada == "Eletrica" else 0
 
+            pos_u = self.graph.nodes[u].get("soma_pos")
+            pos_v = self.graph.nodes[v].get("soma_pos")
+            du = min(max(float(pos_u if pos_u is not None else 0.5), 0.0), 1.0)
+            dv = min(max(float(pos_v if pos_v is not None else 0.5), 0.0), 1.0)
+            distancia = abs(du - dv)
+            custo = float(peso) * distancia
+            cq = float(pq) * distancia
+            ce = float(pe) * distancia
+
             if g_vis.has_edge(u, v):
                 g_vis[u][v]["peso_acumulado"] += peso
                 g_vis[u][v]["peso_quimico"] += pq
                 g_vis[u][v]["peso_eletrico"] += pe
+                g_vis[u][v]["custo_cabeamento"] += custo
+                g_vis[u][v]["custo_quimico"] += cq
+                g_vis[u][v]["custo_eletrico"] += ce
                 g_vis[u][v]["width"] = float(0.7 + np.log1p(g_vis[u][v]["peso_acumulado"]) * 0.85)
-                g_vis[u][v]["title"] += f" | {camada}: {peso}"
+                g_vis[u][v]["title"] += f" | {camada}: {peso} (custo {custo:.1f})"
             else:
                 g_vis.add_edge(
                     u,
@@ -935,11 +948,24 @@ class ConnectomeVisualizer:
                     peso_acumulado=peso,
                     peso_quimico=pq,
                     peso_eletrico=pe,
+                    custo_cabeamento=custo,
+                    custo_quimico=cq,
+                    custo_eletrico=ce,
+                    distancia_soma=distancia,
                     width=float(0.7 + np.log1p(peso) * 0.85),
-                    title=f"{u} → {v} ({camada}: {peso})",
+                    title=(
+                        f"{u} → {v} | Distância soma: {distancia:.2f}\n"
+                        f"{camada}: {peso} (custo cabeamento: {custo:.1f})"
+                    ),
                     color="rgba(160, 160, 160, 0.22)",
                     physics=False
                 )
+
+        # Custo máximo de cabeamento entre pares consolidados (normalização da escala de cor no JS)
+        custo_maximo = max(
+            (g_vis[u][v].get("custo_cabeamento", 0.0) for u, v in g_vis.edges()),
+            default=0.0
+        )
 
         net.from_nx(g_vis)
         net.save_graph(caminho_saida)
@@ -1220,6 +1246,7 @@ class ConnectomeVisualizer:
                 <div class="item-legenda"><span class="linha-cor" style="background:#FF9800;"></span>Sinapse Química (S/Sp)</div>
                 <div class="item-legenda"><span class="linha-cor" style="background:#00BCD4;"></span>Junção Elétrica (EJ)</div>
                 <div class="item-legenda"><span class="linha-cor" style="background:#FF4081;"></span>Multiplex (Quím + Elét)</div>
+                <div class="item-legenda"><span class="linha-cor" style="background:linear-gradient(90deg, hsl(220, 85%, 55%), hsl(110, 85%, 55%), hsl(0, 85%, 55%));"></span>Custo de Cabeamento (baixo → alto)</div>
             </div>
             <div id="texto-explicativo-modo" class="descricao-modo">
                 Agrupa espacialmente os neurônios em 5 ilhas segundo seu papel biológico, posicionando os maiores hubs no centro de cada grupo.
@@ -1243,6 +1270,7 @@ class ConnectomeVisualizer:
                 <select id="select-camada-arestas" class="select-custom" onchange="filtrarCamadaSinaptica(this.value)">
                     <option value="padrao">Todas (Padrão Consolidado)</option>
                     <option value="colorir_camadas">Destacar Cores (Química / Elétrica / Multiplex)</option>
+                    <option value="colorir_custo">Colorir por Custo de Cabeamento (Peso × Distância Soma)</option>
                     <option value="quimica">Somente Sinapses Químicas (Direcionadas)</option>
                     <option value="eletrica">Somente Junções Elétricas (Gap Junctions)</option>
                     <option value="multiplex_only">Somente Pares Multiplex (Química + Elétrica)</option>
@@ -1269,6 +1297,7 @@ class ConnectomeVisualizer:
             var rcDestacado = false;
             var coordenadasLayouts = {layouts_json};
             var membrosRichClub = new Set({rc_json});
+            var custoMaximo = {custo_maximo:.6f};
 
             var descricoesModos = {{
                 "clusters": {{
@@ -1411,6 +1440,14 @@ class ConnectomeVisualizer:
                             cor = "rgba(255, 152, 0, 0.30)"; // Química
                             setaAtiva = true;
                         }}
+                    }} else if (filtro === "colorir_custo") {{
+                        ocultar = false;
+                        var custoRef = ar.custo_cabeamento || 0;
+                        var tCusto = custoMaximo > 0 ? Math.min(custoRef / custoMaximo, 1) : 0;
+                        var hue = 220 * (1 - tCusto); // azul (barato) -> vermelho (caro)
+                        cor = "hsl(" + hue.toFixed(0) + ", 85%, 55%)";
+                        setaAtiva = true;
+                        pesoRef = pt; // largura continua refletindo o peso sináptico
                     }}
 
                     var largura = 0.7 + Math.log1p(Math.max(pesoRef, 1)) * 0.85;
