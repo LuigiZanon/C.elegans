@@ -173,7 +173,6 @@ class ConnectomeVisualizer:
         # -------------------------------------------------------------------------
         faixas_y_anatomicas = {
             "Sensorial": -430.0,
-            "Faríngeo": -200.0,
             "Interneurônio": 20.0,
             "Interneurônio (Comando)": 230.0,
             "Motor": 450.0,
@@ -209,7 +208,6 @@ class ConnectomeVisualizer:
         # MODO 3: Hierarquia Direcional de Fluxo (Feedforward: Sensorial -> Motor)
         # -------------------------------------------------------------------------
         config_colunas = {
-            "Faríngeo": (-1280.0, 2),
             "Sensorial": (-680.0, 3),
             "Interneurônio": (0.0, 3),
             "Interneurônio (Comando)": (620.0, 1),
@@ -284,7 +282,6 @@ class ConnectomeVisualizer:
             "Interneurônio": -320.0,
             "Interneurônio (Comando)": 220.0,
             "Motor": 820.0,
-            "Faríngeo": -1380.0,
             "Desconhecido": 1250.0
         }
         cont_multiplex = {k: 0 for k in faixas_x_multiplex}
@@ -843,7 +840,6 @@ class ConnectomeVisualizer:
             <div class="item-legenda"><span class="bolinha-cor" style="background:#FBBC05;"></span>Interneurônio</div>
             <div class="item-legenda"><span class="bolinha-cor" style="background:#EA4335;"></span>Comando / Hubs</div>
             <div class="item-legenda"><span class="bolinha-cor" style="background:#34A853;"></span>Motor</div>
-            <div class="item-legenda"><span class="bolinha-cor" style="background:#9C27B0;"></span>Faríngeo</div>
             <div class="item-legenda">★ Mais influente da classe</div>
             <div id="legenda-arestas" style="display:none; margin-top:6px; padding-top:6px; border-top:1px solid #3a3a3a;">
                 <div class="item-legenda"><span class="linha-cor" style="background:#FF9800;"></span>Sinapse Química (S/Sp)</div>
@@ -902,7 +898,7 @@ class ConnectomeVisualizer:
             var descricoesModos = {{
                 "clusters": {{
                     titulo: "1. Clusters Funcionais",
-                    texto: "Agrupa os neurônios em 5 ilhas por função biológica (Sensorial, Interneurônio, Comando, Motor e Faríngeo), com hubs no centro."
+                    texto: "Agrupa os neurônios em 5 ilhas por função biológica (Sensorial, Interneurônio, Comando, Motor), com hubs no centro."
                 }},
                 "anatomico": {{
                     titulo: "2. Anatomia Longitudinal Real",
@@ -910,7 +906,7 @@ class ConnectomeVisualizer:
                 }},
                 "hierarquico": {{
                     titulo: "3. Hierarquia Direcional de Fluxo",
-                    texto: "Organiza a rede em colunas da esquerda para a direita seguindo o processamento neural: Faríngeo / Sensorial → Interneurônio → Comando → Motor."
+                    texto: "Organiza a rede em colunas da esquerda para a direita seguindo o processamento neural: Sensorial → Interneurônio → Comando → Motor."
                 }},
                 "rich_club": {{
                     titulo: "4. Anéis Concêntricos Rich-Club",

@@ -17,9 +17,6 @@ PREFIXOS_MOTORES = (
     "SMD", "URA", "PDA", "PDB", "DVB", "HSN"
 )
 
-PREFIXOS_FARINGEOS = (
-    "I1", "I2", "I3", "I4", "I5", "I6", "M1", "M2", "M3", "M4", "M5", "MC", "MI", "NSM"
-)
 
 INTERNEURONIOS_COMANDO = {
     "AVAL", "AVAR", "AVBL", "AVBR", "AVDL", "AVDR", "AVEL", "AVER", "PVCL", "PVCR"
@@ -30,15 +27,13 @@ ORDEM_CLASSES_PADRAO = [
     "Interneurônio",
     "Interneurônio (Comando)",
     "Motor",
-    "Faríngeo"
 ]
 
 PALETA_CORES_FUNCIONAIS = {
     "Sensorial": "#4285F4",               # Azul
     "Interneurônio": "#FBBC05",           # Amarelo
     "Interneurônio (Comando)": "#EA4335", # Vermelho
-    "Motor": "#34A853",                   # Verde
-    "Faríngeo": "#9C27B0"                 # Roxo
+    "Motor": "#34A853"                   # Verde
 }
 
 # Coordenadas (X, Y) dos centros de cada cluster funcional na tela (Modo 1: Clusters)
@@ -47,7 +42,6 @@ CENTROS_GRUPOS_FUNCIONAIS = {
     "Interneurônio": (0, -620),            # Topo-Centro (Processamento)
     "Interneurônio (Comando)": (0, 80),    # Centro (Hubs de comando)
     "Motor": (950, -120),                  # Direita (Execução motora)
-    "Faríngeo": (-750, 600),               # Inferior-Esquerda (Faringe)
     "Desconhecido": (750, 600)
 }
 

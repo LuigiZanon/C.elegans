@@ -9,7 +9,6 @@ import networkx as nx
 from config import (
     PREFIXOS_SENSORIAIS,
     PREFIXOS_MOTORES,
-    PREFIXOS_FARINGEOS,
     INTERNEURONIOS_COMANDO
 )
 
@@ -33,8 +32,6 @@ class ConnectomeBuilder:
         """Retorna a classe funcional canônica do neurônio a partir da sua sigla e presença de NMJ."""
         if nome_neuronio in INTERNEURONIOS_COMANDO:
             return "Interneurônio (Comando)"
-        if nome_neuronio.startswith(PREFIXOS_FARINGEOS):
-            return "Faríngeo"
         if nome_neuronio.startswith(PREFIXOS_SENSORIAIS):
             return "Sensorial"
         if nome_neuronio.startswith(PREFIXOS_MOTORES) or tem_nmj:
