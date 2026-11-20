@@ -135,3 +135,38 @@ PALETA_ESTRATEGIAS_NAVEGACAO = {
     "Caminhada Aleatória": "#9E9E9E",       # Cinza
 }
 
+PRESERVATION_ANALYSIS_CONFIG = {
+    "n_runs_null": 30,             # Quantidade de redes nulas direcionadas (Double-Edge Swap)
+    "swaps_fator": 3,              # Trocas por rodada nula = max(1500, swaps_fator * M)
+    "louvain_resolution": 1.0,     # Parâmetro de resolução para detecção de comunidades
+    "seed_base": 42,               # Semente determinística global
+}
+
+PALETA_BOWTIE_PRESERVACAO = {
+    "SCC (Núcleo Recorrente)": "#EA4335", # Vermelho (preservação / reverberação)
+    "IN (Entrada / Feeders)": "#4285F4",  # Azul (injeta sinal no núcleo)
+    "OUT (Saída / Sinks)": "#34A853",     # Verde (recebe do núcleo sem retornar)
+    "Outros (Isolados/Tubes)": "#9E9E9E", # Cinza (periferia desconexa da SCC)
+}
+
+DIFFUSION_ANALYSIS_CONFIG = {
+    "n_runs_er_estrutural": 20,      # Redes ER equivalentes para L, D e E_glob
+    "n_runs_si": 150,                # Rodadas Monte Carlo por cenário no modelo SI
+    "n_runs_ic": 150,                # Rodadas Monte Carlo por (cenário, beta) na Cascata Independente
+    "beta_si_padrao": 0.08,          # Probabilidade de transmissão por passo no modelo SI
+    "max_steps_si": 25,              # Horizonte temporal máximo do modelo SI
+    "betas_ic": [0.02, 0.04, 0.06, 0.08, 0.12, 0.18, 0.25, 0.35],  # Grade da curva de fase IC/SIR
+    "beta_ic_referencia": 0.08,      # Probabilidade de destaque para comparação direta
+    "seed_base": 42,                 # Semente determinística global
+}
+
+PALETA_CENARIOS_DIFUSAO = {
+    "C. elegans (Hubs / Rich-Club)": "#EA4335", # Vermelho
+    "C. elegans (Sensorial)": "#4285F4",        # Azul
+    "C. elegans (Aleatório)": "#FBBC05",        # Amarelo / Âmbar
+    "Erdős-Rényi (Top Hubs)": "#34A853",        # Verde
+    "Erdős-Rényi (Aleatório)": "#757575",       # Cinza
+}
+
+
+

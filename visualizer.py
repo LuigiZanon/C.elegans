@@ -24,6 +24,8 @@ from config import (
     PALETA_MODELOS_SINTETICOS,
     PALETA_MODELOS_CAUDA,
     PALETA_ESTRATEGIAS_NAVEGACAO,
+    PALETA_BOWTIE_PRESERVACAO,
+    PALETA_CENARIOS_DIFUSAO,
     CENTROS_GRUPOS_FUNCIONAIS,
     PYVIS_PHYSICS_OPTIONS
 )
@@ -1590,6 +1592,864 @@ class ConnectomeVisualizer:
         fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Gráfico de assortatividade salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_preservacao_reciprocidade_scc(
+        self,
+        df_preservacao_resumo: pd.DataFrame,
+        mat_reciprocidade: pd.DataFrame,
+        df_bowtie_classes: pd.DataFrame,
+        resumo_json: Dict[str, Any],
+        nome_arquivo: str = "preservacao_reciprocidade_scc.png"
+    ) -> str:
+        """
+        Gera figura 1x3 com os Pilares 1 e 2 de Preservação de Informação:
+          - Painel 1: Reciprocidade Real vs. Modelo Nulo (Química R, Química R_w, Combinada R)
+          - Painel 2: Heatmap de Reciprocidade Química por Classe Funcional (R_AB em %)
+          - Painel 3: Decomposição Bow-Tie da Camada Química por Classe Funcional
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18.5, 5.8))
+
+        rec = resumo_json.get("reciprocidade", {})
+        scc = resumo_json.get("scc_bowtie", {})
+
+        # --- Painel 1: Reciprocidade Real vs. Modelo Nulo ---
+        categorias = [
+            r"Química ($R$)",
+            r"Química ($R_{w}$)",
+            r"Combinada ($R$)",
+        ]
+        vals_real = [
+            float(rec.get("quimica_topologica", 0.0)) * 100.0,
+            float(rec.get("quimica_ponderada", 0.0)) * 100.0,
+            float(rec.get("combinada_topologica", 0.0)) * 100.0,
+        ]
+        vals_nulo = [
+            float(rec.get("quimica_nulo_topologica_media", 0.0)) * 100.0,
+            float(rec.get("quimica_nulo_ponderada_media", 0.0)) * 100.0,
+            float(rec.get("combinada_nulo_topologica_media", rec.get("quimica_nulo_topologica_media", 0.0))) * 100.0,
+        ]
+        stds_nulo = [
+            float(rec.get("quimica_nulo_topologica_std", 0.0)) * 100.0,
+            float(rec.get("quimica_nulo_ponderada_std", 0.0)) * 100.0,
+            float(rec.get("combinada_nulo_topologica_std", rec.get("quimica_nulo_topologica_std", 0.0))) * 100.0,
+        ]
+        z_scores = [
+            float(rec.get("z_score_reciprocidade", 0.0)),
+            float(rec.get("z_score_reciprocidade_ponderada", 0.0)),
+            float(rec.get("z_score_combinada_topologica", 0.0)),
+        ]
+
+        x = np.arange(len(categorias))
+        larg = 0.34
+        b_real = ax1.bar(
+            x - larg / 2, vals_real, width=larg, color="#EA4335",
+            edgecolor="#222222", linewidth=0.85, label="C. elegans (Real)"
+        )
+        b_nulo = ax1.bar(
+            x + larg / 2, vals_nulo, width=larg, yerr=stds_nulo, capsize=4,
+            color="#9E9E9E", edgecolor="#222222", linewidth=0.85,
+            error_kw={"elinewidth": 1.1, "ecolor": "#333333"},
+            label=r"Modelo Nulo Direcionado ($\mu \pm \sigma$)"
+        )
+
+        y_max_1 = max(max(vals_real + vals_nulo) * 1.28, 25.0)
+        ax1.set_ylim(0, min(115.0, y_max_1))
+
+        for bar_r, bar_n, vr, vn, zv in zip(b_real, b_nulo, vals_real, vals_nulo, z_scores):
+            ax1.text(
+                bar_r.get_x() + bar_r.get_width() / 2,
+                vr + 1.2,
+                f"{vr:.1f}%\n(Z={zv:+.1f})",
+                ha="center", va="bottom", fontsize=8.3, fontweight="bold", color="#B71C1C"
+            )
+            ax1.text(
+                bar_n.get_x() + bar_n.get_width() / 2,
+                vn + 1.2,
+                f"{vn:.1f}%",
+                ha="center", va="bottom", fontsize=8.2, color="#424242"
+            )
+
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(categorias, fontsize=9.5, fontweight="bold")
+        ax1.set_ylabel("Reciprocidade (%)", fontsize=10.5, fontweight="bold")
+        ax1.set_title(
+            r"Reciprocidade Real vs. Modelo Nulo ($R$ e $R_{w}$)",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax1.legend(loc="upper left", fontsize=8.5, framealpha=0.92)
+        ax1.grid(axis="y", alpha=0.28, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel 2: Heatmap de Reciprocidade Química por Classe Funcional ---
+        mat_pct = mat_reciprocidade.to_numpy(dtype=float) * 100.0
+        rotulos_curtos = [
+            c.replace("Interneurônio (Comando)", "Comando").replace("Interneurônio", "Interneur.")
+            for c in mat_reciprocidade.index
+        ]
+        vmax_hm = max(float(np.nanmax(mat_pct)) if mat_pct.size > 0 else 50.0, 10.0)
+        im = ax2.imshow(mat_pct, cmap="YlOrRd", vmin=0.0, vmax=vmax_hm, aspect="auto")
+
+        for i in range(mat_pct.shape[0]):
+            for j in range(mat_pct.shape[1]):
+                val = mat_pct[i, j]
+                cor_txt = "white" if val >= 0.58 * vmax_hm else "#111111"
+                ax2.text(
+                    j, i, f"{val:.1f}%",
+                    ha="center", va="center", fontsize=9.5, fontweight="bold", color=cor_txt
+                )
+
+        ax2.set_xticks(np.arange(len(rotulos_curtos)))
+        ax2.set_yticks(np.arange(len(rotulos_curtos)))
+        ax2.set_xticklabels(rotulos_curtos, rotation=22, ha="right", fontsize=9.0, fontweight="bold")
+        ax2.set_yticklabels(rotulos_curtos, fontsize=9.0, fontweight="bold")
+        ax2.set_xlabel("Classe Destino (B)", fontsize=10.0, fontweight="bold")
+        ax2.set_ylabel("Classe Origem (A)", fontsize=10.0, fontweight="bold")
+        ax2.set_title(
+            r"Reciprocidade Química por Classe ($R_{AB}$, %)",
+            fontsize=11.5, fontweight="bold"
+        )
+        cbar = fig.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+        cbar.set_label(r"$R_{AB}$ (%)", fontsize=9.0, fontweight="bold")
+
+        # --- Painel 3: Decomposição Bow-Tie por Classe Funcional ---
+        setores_ordem = [
+            "IN (Entrada / Feeders)",
+            "SCC (Núcleo Recorrente)",
+            "OUT (Saída / Sinks)",
+            "Outros (Isolados/Tubes)",
+        ]
+        rotulos_setores = [
+            "IN\n(Entrada)",
+            "SCC\n(Núcleo)",
+            "OUT\n(Saída)",
+            "Outros\n(Isolados)",
+        ]
+        df_bt = df_bowtie_classes.set_index("Setor_BowTie")
+        classes_plot = [c for c in ORDEM_CLASSES_PADRAO if c in df_bt.columns]
+        x_bt = np.arange(len(setores_ordem))
+        base = np.zeros(len(setores_ordem), dtype=float)
+
+        for cls in classes_plot:
+            alturas = np.array([
+                float(df_bt.loc[s, cls]) if s in df_bt.index else 0.0
+                for s in setores_ordem
+            ])
+            cor_cls = PALETA_CORES_FUNCIONAIS.get(cls, "#757575")
+            ax3.bar(
+                x_bt, alturas, bottom=base, width=0.58,
+                color=cor_cls, edgecolor="#222222", linewidth=0.7,
+                label=cls.replace("Interneurônio (Comando)", "Comando")
+            )
+            base += alturas
+
+        for idx_s, tot_s in enumerate(base):
+            ax3.text(
+                x_bt[idx_s], tot_s + max(base) * 0.02,
+                f"{int(round(tot_s))}",
+                ha="center", va="bottom", fontsize=9.2, fontweight="bold", color="#111111"
+            )
+
+        ax3.set_ylim(0, max(base) * 1.24 if len(base) > 0 and max(base) > 0 else 10)
+        ax3.set_xticks(x_bt)
+        ax3.set_xticklabels(rotulos_setores, fontsize=9.2, fontweight="bold")
+        ax3.set_ylabel("Número de Neurônios", fontsize=10.5, fontweight="bold")
+        ax3.set_title(
+            r"Decomposição Bow-Tie (Camada Química)",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax3.legend(loc="upper right", fontsize=8.0, framealpha=0.92)
+        ax3.grid(axis="y", alpha=0.28, linestyle=":")
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+
+        lscc_tam = int(scc.get("quimica_lscc_tamanho", 0))
+        lscc_pct = float(scc.get("quimica_lscc_fracao_pct", 0.0))
+        lscc_comb_pct = float(scc.get("combinada_lscc_fracao_pct", 0.0))
+        rc_qtd = int(scc.get("rich_club_na_lscc_quimica_qtd", 0))
+        rc_tot = int(scc.get("rich_club_total", 0))
+        rc_pct = float(scc.get("rich_club_na_lscc_quimica_pct", 0.0))
+
+        caixa_scc = (
+            r"$|V_{\mathrm{LSCC}}|$ Química = " + f"{lscc_tam} ({lscc_pct:.1f}%)\n"
+            + f"LSCC Combinada = {lscc_comb_pct:.1f}%\n"
+            + f"Rich-Club na SCC = {rc_qtd}/{rc_tot} ({rc_pct:.0f}%)"
+        )
+        ax3.text(
+            0.03, 0.96, caixa_scc,
+            transform=ax3.transAxes,
+            fontsize=8.4,
+            verticalalignment="top",
+            horizontalalignment="left",
+            bbox={
+                "boxstyle": "round,pad=0.45",
+                "facecolor": "#FFF8E1",
+                "edgecolor": PALETA_BOWTIE_PRESERVACAO.get("SCC (Núcleo Recorrente)", "#EA4335"),
+                "linewidth": 1.1,
+            },
+        )
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de preservação (reciprocidade e SCC) salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_preservacao_modularidade_ciclos(
+        self,
+        df_modularidade: pd.DataFrame,
+        df_ciclos_motifs: pd.DataFrame,
+        df_ciclos_por_classe: pd.DataFrame,
+        resumo_json: Dict[str, Any],
+        nome_arquivo: str = "preservacao_modularidade_ciclos.png"
+    ) -> str:
+        """
+        Gera figura 1x3 com os Pilares 3 e 4 de Preservação de Informação:
+          - Painel 1: Modularidade Q (Louvain Química/Combinada, Funcional, Anatômica, Nulo)
+          - Painel 2: Enriquecimento de Ciclos Curtos (C2, C3) e Tríades (Z-Score vs. Nulo)
+          - Painel 3: Participação Média Nodal em 2-Ciclos e 3-Ciclos por Classe e Rich-Club
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18.5, 5.8))
+
+        mod = resumo_json.get("modularidade", {})
+        cic = resumo_json.get("ciclos_curtos", {})
+
+        # --- Painel 1: Modularidade Q e Alinhamento Biológico ---
+        rotulos_q = [
+            "Louvain\n(Química)",
+            "Louvain\n(Combinada)",
+            "Partição\nFuncional",
+            "Partição\nAnatômica",
+            "Modelo Nulo\n(Química)",
+        ]
+        vals_q = [
+            float(mod.get("Q_quimica_louvain_ponderada", 0.0)),
+            float(mod.get("Q_combinada_louvain_ponderada", 0.0)),
+            float(mod.get("Q_funcional_quimica", 0.0)),
+            float(mod.get("Q_anatomica_quimica", 0.0)),
+            float(mod.get("Q_quimica_nulo_media", 0.0)),
+        ]
+        errs_q = [0.0, 0.0, 0.0, 0.0, float(mod.get("Q_quimica_nulo_std", 0.0))]
+        cores_q = ["#EA4335", "#4285F4", "#FBBC05", "#34A853", "#9E9E9E"]
+
+        x_q = np.arange(len(rotulos_q))
+        barras_q = ax1.bar(
+            x_q, vals_q, width=0.58, yerr=errs_q, capsize=4,
+            color=cores_q, edgecolor="#222222", linewidth=0.85,
+            error_kw={"elinewidth": 1.1, "ecolor": "#333333"}
+        )
+        ax1.axhline(0.0, color="#222222", linewidth=0.9)
+
+        y_min_q = min(0.0, min(vals_q) - 0.08)
+        y_max_q = max(max(vals_q) * 1.32, 0.45)
+        ax1.set_ylim(y_min_q, y_max_q)
+
+        for barra, vq in zip(barras_q, vals_q):
+            desloc = 0.015 if vq >= 0 else -0.025
+            va = "bottom" if vq >= 0 else "top"
+            ax1.text(
+                barra.get_x() + barra.get_width() / 2,
+                vq + desloc,
+                f"{vq:.3f}",
+                ha="center", va=va, fontsize=8.8, fontweight="bold", color="#111111"
+            )
+
+        z_q = float(mod.get("Q_quimica_z_score", 0.0))
+        f_intra = float(mod.get("retencao_intra_modulo_quimica_pct", 0.0))
+        nmi_f = float(mod.get("nmi_louvain_vs_funcional", 0.0))
+        nmi_a = float(mod.get("nmi_louvain_vs_anatomico", 0.0))
+
+        caixa_mod = (
+            r"$Z_{Q}$ (Química) = " + f"{z_q:+.2f}\n"
+            + r"$F_{\mathrm{intra}}$ (Química) = " + f"{f_intra:.1f}%\n"
+            + f"NMI Funcional = {nmi_f:.3f}\n"
+            + f"NMI Anatômico = {nmi_a:.3f}"
+        )
+        ax1.text(
+            0.97, 0.96, caixa_mod,
+            transform=ax1.transAxes,
+            fontsize=8.4,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox={
+                "boxstyle": "round,pad=0.45",
+                "facecolor": "#F8F9FA",
+                "edgecolor": "#B0BEC5",
+                "linewidth": 1.05,
+            },
+        )
+
+        ax1.set_xticks(x_q)
+        ax1.set_xticklabels(rotulos_q, fontsize=8.6, fontweight="bold")
+        ax1.set_ylabel(r"Modularidade Ponderada ($Q$)", fontsize=10.5, fontweight="bold")
+        ax1.set_title(
+            r"Modularidade ($Q$) e Retenção Intra-Módulo",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax1.grid(axis="y", alpha=0.28, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel 2: Enriquecimento de Ciclos Curtos e Tríades (Z-Score) ---
+        estruturas = df_ciclos_motifs["Estrutura"].tolist()
+        z_motifs = df_ciclos_motifs["Z_Score"].to_numpy(dtype=float)
+        razoes_motifs = df_ciclos_motifs["Razao_Real_Nulo"].to_numpy(dtype=float)
+        y_m = np.arange(len(estruturas))
+
+        cores_m = [
+            "#EA4335" if z > 2.0 else ("#4285F4" if z < -2.0 else "#9E9E9E")
+            for z in z_motifs
+        ]
+        barras_m = ax2.barh(
+            y_m, z_motifs, height=0.60, color=cores_m,
+            edgecolor="#222222", linewidth=0.85
+        )
+        ax2.axvline(0.0, color="#222222", linewidth=1.1)
+        ax2.axvline(2.0, color="#616161", linewidth=1.0, linestyle="--", alpha=0.75)
+        ax2.axvline(-2.0, color="#616161", linewidth=1.0, linestyle="--", alpha=0.75)
+
+        min_z = float(np.min(z_motifs)) if z_motifs.size > 0 else 0.0
+        max_z = float(np.max(z_motifs)) if z_motifs.size > 0 else 4.0
+        span_z = max(max_z - min(min_z, 0.0), 10.0)
+        x_esq = min(-3.5, min_z - 0.42 * span_z) if min_z < 0 else -3.5
+        x_dir = max(4.5, max_z + 0.36 * span_z)
+        ax2.set_xlim(x_esq, x_dir)
+
+        for barra, zv, rv in zip(barras_m, z_motifs, razoes_motifs):
+            desloc = 0.018 * (x_dir - x_esq)
+            if zv >= 0:
+                ax2.text(
+                    zv + desloc, barra.get_y() + barra.get_height() / 2,
+                    f"Z={zv:+.1f} ({rv:.2f}x)",
+                    va="center", ha="left", fontsize=8.3, fontweight="bold", color="#111111"
+                )
+            else:
+                ax2.text(
+                    zv - desloc, barra.get_y() + barra.get_height() / 2,
+                    f"Z={zv:+.1f} ({rv:.2f}x)",
+                    va="center", ha="right", fontsize=8.3, fontweight="bold", color="#111111"
+                )
+
+        ax2.set_yticks(y_m)
+        ax2.set_yticklabels(estruturas, fontsize=8.6, fontweight="bold")
+        ax2.invert_yaxis()
+        ax2.set_xlabel(r"$Z$-Score vs. Modelo Nulo Direcionado ($|Z| > 2$ significativo)", fontsize=9.8, fontweight="bold")
+        ax2.set_title(
+            r"Enriquecimento de Ciclos ($C_{2}, C_{3}$) e Tríades",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax2.grid(axis="x", alpha=0.28, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        # --- Painel 3: Participação Média em Ciclos por Classe e Rich-Club ---
+        df_cls = df_ciclos_por_classe.copy()
+        grupos = [
+            g.replace("Interneurônio (Comando)", "Comando")
+             .replace("Interneurônio", "Interneur.")
+             .replace("Núcleo Rich-Club", "Rich-Club")
+             .replace("Periferia (Demais)", "Periferia")
+            for g in df_cls["Grupo"].tolist()
+        ]
+        c2_med = df_cls["C2_Media"].to_numpy(dtype=float)
+        c3_med = df_cls["C3_Media"].to_numpy(dtype=float)
+        n_classes_func = int((df_cls["Categoria"] == "Classe Funcional").sum())
+
+        x_c = np.arange(len(grupos))
+        larg_c = 0.36
+        b_c2 = ax3.bar(
+            x_c - larg_c / 2, np.maximum(c2_med, 0.05), width=larg_c,
+            color="#4285F4", edgecolor="#222222", linewidth=0.8,
+            label=r"Média 2-Ciclos ($C_{2}$ / neurônio)"
+        )
+        b_c3 = ax3.bar(
+            x_c + larg_c / 2, np.maximum(c3_med, 0.05), width=larg_c,
+            color="#EA4335", edgecolor="#222222", linewidth=0.8,
+            label=r"Média 3-Ciclos ($C_{3}$ / neurônio)"
+        )
+
+        if 0 < n_classes_func < len(grupos):
+            ax3.axvline(n_classes_func - 0.5, color="#424242", linestyle="--", linewidth=1.1, alpha=0.75)
+
+        ax3.set_yscale("log")
+        y_top_3 = max(float(np.max(np.concatenate([c2_med, c3_med]))) * 2.8, 10.0)
+        ax3.set_ylim(0.1, y_top_3)
+
+        for barra, val in zip(b_c2, c2_med):
+            ax3.text(
+                barra.get_x() + barra.get_width() / 2,
+                max(val, 0.1) * 1.12,
+                f"{val:.1f}",
+                ha="center", va="bottom", fontsize=7.6, fontweight="bold", color="#0D47A1"
+            )
+        for barra, val in zip(b_c3, c3_med):
+            ax3.text(
+                barra.get_x() + barra.get_width() / 2,
+                max(val, 0.1) * 1.12,
+                f"{val:.0f}" if val >= 10 else f"{val:.1f}",
+                ha="center", va="bottom", fontsize=7.6, fontweight="bold", color="#B71C1C"
+            )
+
+        ax3.set_xticks(x_c)
+        ax3.set_xticklabels(grupos, rotation=24, ha="right", fontsize=8.6, fontweight="bold")
+        ax3.set_ylabel(r"Participação Média em Ciclos (escala log)", fontsize=10.0, fontweight="bold")
+        ax3.set_title(
+            r"Ciclos Curtos ($C_{2}, C_{3}$) por Classe e Rich-Club",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax3.legend(loc="upper left", fontsize=8.0, framealpha=0.92)
+        ax3.grid(axis="y", which="both", alpha=0.25, linestyle=":")
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+
+        frac_rec = float(cic.get("fracao_triades_recorrentes_pct", 0.0))
+        ax3.text(
+            0.97, 0.96,
+            f"Tríades recorrentes: {frac_rec:.1f}%",
+            transform=ax3.transAxes,
+            fontsize=8.2,
+            va="top", ha="right",
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": "#FFF8E1",
+                "edgecolor": "#FBBC05",
+                "linewidth": 1.0,
+            },
+        )
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de preservação (modularidade e ciclos) salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_difusao_estrutural(
+        self,
+        df_estrutural: pd.DataFrame,
+        df_distancias: pd.DataFrame,
+        resumo_json: Dict[str, Any],
+        nome_arquivo: str = "difusao_metricas_estruturais.png"
+    ) -> str:
+        """
+        Gera painel 1x3 comparando métricas estruturais de difusão do conectoma vs. Erdős-Rényi:
+          1. Caminho Mínimo Médio (L) e Diâmetro (D) nas visões Combinada (Undir e Dir).
+          2. Eficiência Global (E_glob) nas 3 visões + box resumo (Sensorial -> Motor e lambda_c).
+          3. Distribuição de distâncias mínimas P(d) (d = 1, 2, 3, 4, 5+) na Combinada Undir.
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18.5, 5.8))
+        fig.suptitle(
+            r"Facilidade de Difusão — Pilar 1: Métricas Estruturais ($L$, $D$, $E_{\mathrm{glob}}$, $\lambda_c$) vs. Erdős-Rényi",
+            fontsize=13.5,
+            fontweight="bold",
+            y=1.02,
+        )
+
+        # --- Painel 1: Caminho Mínimo Médio (L) e Diâmetro (D) ---
+        visoes_p1 = ["Combinada (Não-Direcionada)", "Combinada (Direcionada)"]
+        sub_p1 = df_estrutural[df_estrutural["Visao"].isin(visoes_p1)].copy()
+        sub_p1["Visao"] = pd.Categorical(sub_p1["Visao"], categories=visoes_p1, ordered=True)
+        sub_p1 = sub_p1.sort_values("Visao")
+
+        categorias_p1 = [
+            r"$L$" + "\nComb. Undir",
+            r"$D$" + "\nComb. Undir",
+            r"$L$" + "\nComb. Dir",
+            r"$D$" + "\nComb. Dir",
+        ]
+        vals_real_p1 = []
+        vals_er_p1 = []
+        stds_er_p1 = []
+        for _, row in sub_p1.iterrows():
+            vals_real_p1.extend([float(row["L_Real"]), float(row["D_Real"])])
+            vals_er_p1.extend([float(row["L_ER_Media"]), float(row["D_ER_Media"])])
+            stds_er_p1.extend([float(row["L_ER_Std"]), float(row["D_ER_Std"])])
+
+        x1 = np.arange(len(categorias_p1))
+        larg1 = 0.36
+        barras_real_1 = ax1.bar(
+            x1 - larg1 / 2, vals_real_p1, width=larg1,
+            color="#EA4335", edgecolor="#222222", linewidth=0.8,
+            label=r"C. elegans (Real)",
+        )
+        barras_er_1 = ax1.bar(
+            x1 + larg1 / 2, vals_er_p1, yerr=stds_er_p1, capsize=4, width=larg1,
+            color="#9E9E9E", edgecolor="#222222", linewidth=0.8,
+            label=r"Erdős-Rényi ($\mu \pm \sigma$)",
+        )
+
+        y_max_1 = max(max(vals_real_p1), max(vals_er_p1)) * 1.24 if vals_real_p1 else 10.0
+        ax1.set_ylim(0, y_max_1)
+        for barra, val in zip(barras_real_1, vals_real_p1):
+            ax1.text(
+                barra.get_x() + barra.get_width() / 2, val + y_max_1 * 0.018,
+                f"{val:.2f}", ha="center", va="bottom",
+                fontsize=8.2, fontweight="bold", color="#B71C1C",
+            )
+        for barra, val, err in zip(barras_er_1, vals_er_p1, stds_er_p1):
+            ax1.text(
+                barra.get_x() + barra.get_width() / 2, val + err + y_max_1 * 0.018,
+                f"{val:.2f}", ha="center", va="bottom",
+                fontsize=8.0, color="#424242",
+            )
+
+        ax1.set_xticks(x1)
+        ax1.set_xticklabels(categorias_p1, fontsize=8.8, fontweight="bold")
+        ax1.set_ylabel(r"Número de Saltos Topológicos", fontsize=10.0, fontweight="bold")
+        ax1.set_title(r"Caminho Mínimo Médio ($L$) e Diâmetro ($D$)", fontsize=11.3, fontweight="bold")
+        ax1.legend(loc="upper left", fontsize=8.3, framealpha=0.92)
+        ax1.grid(axis="y", alpha=0.28, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel 2: Eficiência Global (E_glob) nas 3 Visões + Caixa Resumo ---
+        rotulos_p2 = [
+            v.replace("Combinada (Não-Direcionada)", "Comb.\nUndir")
+             .replace("Combinada (Direcionada)", "Comb.\nDir")
+             .replace("Química (Direcionada)", "Química\nDir")
+            for v in df_estrutural["Visao"].tolist()
+        ]
+        e_real = df_estrutural["E_Glob_Real"].to_numpy(dtype=float)
+        e_er = df_estrutural["E_Glob_ER_Media"].to_numpy(dtype=float)
+        e_er_std = df_estrutural["E_Glob_ER_Std"].to_numpy(dtype=float)
+
+        x2 = np.arange(len(rotulos_p2))
+        larg2 = 0.36
+        b_e_real = ax2.bar(
+            x2 - larg2 / 2, e_real, width=larg2,
+            color="#4285F4", edgecolor="#222222", linewidth=0.8,
+            label=r"C. elegans ($E_{\mathrm{glob}}$)",
+        )
+        b_e_er = ax2.bar(
+            x2 + larg2 / 2, e_er, yerr=e_er_std, capsize=4, width=larg2,
+            color="#9E9E9E", edgecolor="#222222", linewidth=0.8,
+            label=r"Erdős-Rényi ($\mu \pm \sigma$)",
+        )
+
+        y_max_2 = max(float(np.max(e_real)), float(np.max(e_er + e_er_std))) * 1.48 if len(e_real) else 1.0
+        ax2.set_ylim(0, min(y_max_2, 1.05))
+        for barra, val in zip(b_e_real, e_real):
+            ax2.text(
+                barra.get_x() + barra.get_width() / 2, val + y_max_2 * 0.018,
+                f"{val:.3f}", ha="center", va="bottom",
+                fontsize=8.2, fontweight="bold", color="#0D47A1",
+            )
+        for barra, val, err in zip(b_e_er, e_er, e_er_std):
+            ax2.text(
+                barra.get_x() + barra.get_width() / 2, val + err + y_max_2 * 0.018,
+                f"{val:.3f}", ha="center", va="bottom",
+                fontsize=8.0, color="#424242",
+            )
+
+        est_u = resumo_json.get("estrutural", {}).get("combinada_undir", {})
+        est_d = resumo_json.get("estrutural", {}).get("combinada_dir", {})
+        l_sm = est_d.get("L_sensorial_para_motor", 0.0) or 0.0
+        alc_sm = est_d.get("alcance_sensorial_para_motor_pct", 0.0) or 0.0
+        lc_real = est_u.get("lambda_c_real", 0.0) or 0.0
+        lc_er = est_u.get("lambda_c_er_media", 0.0) or 0.0
+
+        texto_box_2 = (
+            f"Canal Sensorial -> Motor (Dir):\n"
+            f"  $L_{{S\\to M}} = {l_sm:.2f}$ | Alcance: {alc_sm:.1f}%\n"
+            f"Limiar Epidêmico (Undir):\n"
+            f"  $\\lambda_{{c,\\mathrm{{real}}}} = {lc_real:.4f}$ vs. "
+            f"$\\lambda_{{c,\\mathrm{{ER}}}} = {lc_er:.4f}$"
+        )
+        ax2.text(
+            0.97, 0.97, texto_box_2,
+            transform=ax2.transAxes, fontsize=7.9,
+            va="top", ha="right",
+            bbox={
+                "boxstyle": "round,pad=0.38",
+                "facecolor": "#FFF8E1",
+                "edgecolor": "#FBBC05",
+                "linewidth": 1.0,
+            },
+        )
+
+        ax2.set_xticks(x2)
+        ax2.set_xticklabels(rotulos_p2, fontsize=9.0, fontweight="bold")
+        ax2.set_ylabel(r"Eficiência Global ($E_{\mathrm{glob}}$)", fontsize=10.0, fontweight="bold")
+        ax2.set_title(r"Eficiência Global ($E_{\mathrm{glob}}$) e Canal Biológico", fontsize=11.3, fontweight="bold")
+        ax2.legend(loc="upper left", fontsize=8.0, framealpha=0.92)
+        ax2.grid(axis="y", alpha=0.28, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        # --- Painel 3: Distribuição de Distâncias Mínimas P(d) ---
+        sub_dist = df_distancias[df_distancias["Visao"] == "Combinada (Não-Direcionada)"].copy()
+        ordem_d = ["1", "2", "3", "4", "5+"]
+        sub_dist["Distancia"] = pd.Categorical(sub_dist["Distancia"], categories=ordem_d, ordered=True)
+        sub_dist = sub_dist.sort_values("Distancia")
+
+        x3 = np.arange(len(sub_dist))
+        larg3 = 0.36
+        p_real = sub_dist["Pct_Real"].to_numpy(dtype=float)
+        p_er = sub_dist["Pct_ER_Media"].to_numpy(dtype=float)
+        p_er_std = sub_dist["Pct_ER_Std"].to_numpy(dtype=float)
+
+        b_d_real = ax3.bar(
+            x3 - larg3 / 2, p_real, width=larg3,
+            color="#EA4335", edgecolor="#222222", linewidth=0.8,
+            label=r"C. elegans (Real)",
+        )
+        b_d_er = ax3.bar(
+            x3 + larg3 / 2, p_er, yerr=p_er_std, capsize=3.5, width=larg3,
+            color="#9E9E9E", edgecolor="#222222", linewidth=0.8,
+            label=r"Erdős-Rényi ($\mu \pm \sigma$)",
+        )
+
+        y_max_3 = max(float(np.max(p_real)), float(np.max(p_er + p_er_std))) * 1.32 if len(p_real) else 100.0
+        ax3.set_ylim(0, min(y_max_3, 105.0))
+        for barra, val in zip(b_d_real, p_real):
+            if val >= 0.5:
+                ax3.text(
+                    barra.get_x() + barra.get_width() / 2, val + y_max_3 * 0.015,
+                    f"{val:.1f}%", ha="center", va="bottom",
+                    fontsize=7.6, fontweight="bold", color="#B71C1C",
+                )
+        for barra, val, err in zip(b_d_er, p_er, p_er_std):
+            if val >= 0.5:
+                ax3.text(
+                    barra.get_x() + barra.get_width() / 2, val + err + y_max_3 * 0.015,
+                    f"{val:.1f}%", ha="center", va="bottom",
+                    fontsize=7.4, color="#424242",
+                )
+
+        pct3_real = est_u.get("pct_pares_ate_3_saltos_real", 0.0) or 0.0
+        pct3_er = est_u.get("pct_pares_ate_3_saltos_er", 0.0) or 0.0
+        ax3.text(
+            0.97, 0.96,
+            f"Pares em até 3 saltos ($d \\leq 3$):\n"
+            f"  C. elegans: {pct3_real:.1f}%\n"
+            f"  Erdős-Rényi: {pct3_er:.1f}%",
+            transform=ax3.transAxes, fontsize=8.0,
+            va="top", ha="right",
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": "#E8F0FE",
+                "edgecolor": "#4285F4",
+                "linewidth": 1.0,
+            },
+        )
+
+        ax3.set_xticks(x3)
+        ax3.set_xticklabels([f"d = {d}" for d in sub_dist["Distancia"].tolist()], fontsize=9.0, fontweight="bold")
+        ax3.set_ylabel(r"Percentual de Pares $P(d)$ (%)", fontsize=10.0, fontweight="bold")
+        ax3.set_title(r"Distribuição de Distâncias Mínimas $P(d)$ (Undir)", fontsize=11.3, fontweight="bold")
+        ax3.legend(loc="upper left", fontsize=8.0, framealpha=0.92)
+        ax3.grid(axis="y", alpha=0.28, linestyle=":")
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de difusão (métricas estruturais) salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_simulacao_difusao(
+        self,
+        df_si_curvas: pd.DataFrame,
+        df_si_resumo: pd.DataFrame,
+        df_ic_curvas: pd.DataFrame,
+        resumo_json: Dict[str, Any],
+        nome_arquivo: str = "difusao_simulacao_propagacao.png"
+    ) -> str:
+        """
+        Gera painel 1x3 com as simulações dinâmicas de difusão (Combinada Não-Direcionada):
+          1. Curvas temporais SI (I(t)/N %) com bandas de +/- 1 desvio padrão e linha de 50%.
+          2. Curva de transição de fase da Cascata Independente / SIR (Alcance vs. beta).
+          3. Barras horizontais comparando AUC_SI (%) e Alcance IC em beta_ref + box direcionado.
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        visao_principal = "Combinada (Não-Direcionada)"
+        cenarios_ordem = list(PALETA_CENARIOS_DIFUSAO.keys())
+
+        beta_si = float(resumo_json.get("metadados", {}).get("beta_si_padrao", 0.08))
+        beta_ref = float(resumo_json.get("simulacao_ic", {}).get("beta_referencia", 0.08))
+
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18.5, 5.8))
+        fig.suptitle(
+            r"Facilidade de Difusão — Pilar 2: Simulações Dinâmicas (Modelo SI e Cascata Independente / SIR)",
+            fontsize=13.5,
+            fontweight="bold",
+            y=1.02,
+        )
+
+        # --- Painel 1: Velocidade de Difusão — Modelo SI ---
+        sub_si = df_si_curvas[df_si_curvas["Visao"] == visao_principal]
+        for cenario in cenarios_ordem:
+            df_c = sub_si[sub_si["Cenario"] == cenario].sort_values("Passo_t")
+            if df_c.empty:
+                continue
+            cor = PALETA_CENARIOS_DIFUSAO.get(cenario, "#333333")
+            t_vals = df_c["Passo_t"].to_numpy(dtype=float)
+            med = df_c["Infectados_Pct_Media"].to_numpy(dtype=float)
+            std = df_c["Infectados_Pct_Std"].to_numpy(dtype=float)
+            estilo = "--" if cenario.startswith("Erdős") else "-"
+            larg = 2.3 if "Hubs / Rich-Club" in cenario else 1.8
+
+            ax1.plot(t_vals, med, linestyle=estilo, linewidth=larg, color=cor, label=cenario)
+            ax1.fill_between(
+                t_vals,
+                np.clip(med - std, 0.0, 100.0),
+                np.clip(med + std, 0.0, 100.0),
+                color=cor,
+                alpha=0.14,
+            )
+
+        ax1.axhline(50.0, color="#333333", linestyle=":", linewidth=1.2, alpha=0.85)
+        ax1.text(0.4, 52.0, r"Limiar $t_{50}$ (50%)", fontsize=8.0, color="#333333", fontweight="bold")
+        ax1.set_xlim(0, float(sub_si["Passo_t"].max()) if not sub_si.empty else 25.0)
+        ax1.set_ylim(0, 105.0)
+        ax1.set_xlabel(r"Passo Temporal ($t$)", fontsize=10.0, fontweight="bold")
+        ax1.set_ylabel(r"Nós Ativados $I(t)/N$ (%)", fontsize=10.0, fontweight="bold")
+        ax1.set_title(
+            rf"Velocidade de Difusão — Modelo SI ($\beta = {beta_si:.2f}$)",
+            fontsize=11.2, fontweight="bold",
+        )
+        ax1.legend(loc="lower right", fontsize=7.6, framealpha=0.92)
+        ax1.grid(alpha=0.28, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel 2: Transição de Fase — Cascata Independente / SIR ---
+        sub_ic = df_ic_curvas[df_ic_curvas["Visao"] == visao_principal]
+        for cenario in cenarios_ordem:
+            df_c = sub_ic[sub_ic["Cenario"] == cenario].sort_values("Beta")
+            if df_c.empty:
+                continue
+            cor = PALETA_CENARIOS_DIFUSAO.get(cenario, "#333333")
+            betas = df_c["Beta"].to_numpy(dtype=float)
+            med = df_c["Alcance_Final_Pct_Media"].to_numpy(dtype=float)
+            std = df_c["Alcance_Final_Pct_Std"].to_numpy(dtype=float)
+            estilo = "--" if cenario.startswith("Erdős") else "-"
+            marcador = "s" if cenario.startswith("Erdős") else "o"
+            larg = 2.3 if "Hubs / Rich-Club" in cenario else 1.8
+
+            ax2.plot(
+                betas, med, linestyle=estilo, marker=marcador, markersize=4.5,
+                linewidth=larg, color=cor, label=cenario,
+            )
+            ax2.fill_between(
+                betas,
+                np.clip(med - std, 0.0, 100.0),
+                np.clip(med + std, 0.0, 100.0),
+                color=cor,
+                alpha=0.14,
+            )
+
+        ax2.axhline(20.0, color="#616161", linestyle=":", linewidth=1.1, alpha=0.85)
+        ax2.axvline(beta_ref, color="#333333", linestyle="-.", linewidth=1.0, alpha=0.75)
+        ax2.text(
+            beta_ref + 0.006, 94.0,
+            rf"$\beta_{{\mathrm{{ref}}}} = {beta_ref:.2f}$",
+            fontsize=8.0, color="#222222", fontweight="bold",
+        )
+        ax2.text(
+            float(sub_ic["Beta"].max()) * 0.98 if not sub_ic.empty else 0.34,
+            22.0,
+            r"Cascata Global (20%)",
+            ha="right", fontsize=7.8, color="#424242",
+        )
+        ax2.set_ylim(0, 105.0)
+        ax2.set_xlabel(r"Probabilidade de Transmissão ($\beta$)", fontsize=10.0, fontweight="bold")
+        ax2.set_ylabel(r"Alcance Final $R_{\infty}/N$ (%)", fontsize=10.0, fontweight="bold")
+        ax2.set_title(r"Transição de Fase — Cascata Independente (IC / SIR)", fontsize=11.2, fontweight="bold")
+        ax2.legend(loc="lower right", fontsize=7.6, framealpha=0.92)
+        ax2.grid(alpha=0.28, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        # --- Painel 3: Resumo Comparativo (AUC_SI e Alcance IC em beta_ref) ---
+        sub_si_res = df_si_resumo[df_si_resumo["Visao"] == visao_principal]
+        sub_ic_ref = sub_ic[np.isclose(sub_ic["Beta"].to_numpy(dtype=float), beta_ref, atol=1e-9)]
+
+        rotulos_curtos = [
+            c.replace("C. elegans ", "C.el. ").replace("Erdős-Rényi ", "ER ")
+            for c in cenarios_ordem
+        ]
+        auc_vals = []
+        alc_vals = []
+        for cenario in cenarios_ordem:
+            r_si = sub_si_res[sub_si_res["Cenario"] == cenario]
+            r_ic = sub_ic_ref[sub_ic_ref["Cenario"] == cenario]
+            auc_vals.append(float(r_si["AUC_SI_Media"].iloc[0]) * 100.0 if not r_si.empty else 0.0)
+            alc_vals.append(float(r_ic["Alcance_Final_Pct_Media"].iloc[0]) if not r_ic.empty else 0.0)
+
+        y3 = np.arange(len(cenarios_ordem))
+        alt = 0.36
+        b_auc = ax3.barh(
+            y3 - alt / 2, auc_vals, height=alt,
+            color="#4285F4", edgecolor="#222222", linewidth=0.8,
+            label=r"Velocidade $\mathrm{AUC}_{\mathrm{SI}}$ (%)",
+        )
+        b_alc = ax3.barh(
+            y3 + alt / 2, alc_vals, height=alt,
+            color="#EA4335", edgecolor="#222222", linewidth=0.8,
+            label=rf"Alcance IC ($\beta = {beta_ref:.2f}$, %)",
+        )
+
+        ax3.set_xlim(0, 118.0)
+        for barra, val in zip(b_auc, auc_vals):
+            ax3.text(
+                val + 1.4, barra.get_y() + barra.get_height() / 2,
+                f"{val:.1f}%", va="center", ha="left",
+                fontsize=7.8, fontweight="bold", color="#0D47A1",
+            )
+        for barra, val in zip(b_alc, alc_vals):
+            ax3.text(
+                val + 1.4, barra.get_y() + barra.get_height() / 2,
+                f"{val:.1f}%", va="center", ha="left",
+                fontsize=7.8, fontweight="bold", color="#B71C1C",
+            )
+
+        si_dir = resumo_json.get("simulacao_si", {}).get("combinada_dir", {})
+        ic_pond = resumo_json.get("simulacao_ic", {}).get("combinada_dir_ponderada", {})
+        tm_hubs = si_dir.get("hubs_t_motor_50")
+        tm_sens = si_dir.get("sensorial_t_motor_50")
+        p_hubs = ic_pond.get("hubs_alcance_pct", 0.0) or 0.0
+        p_sens = ic_pond.get("sensorial_alcance_pct", 0.0) or 0.0
+
+        str_tm_h = f"{tm_hubs:.1f}" if tm_hubs is not None else "N/A"
+        str_tm_s = f"{tm_sens:.1f}" if tm_sens is not None else "N/A"
+        ax3.text(
+            0.98, 0.03,
+            f"Projeção Direcionada:\n"
+            f"  $t_{{\\mathrm{{motor}},50}}$ Hubs: {str_tm_h} | Sens.: {str_tm_s}\n"
+            f"  IC Ponderada ($\\beta={beta_ref:.2f}$): Hubs {p_hubs:.1f}% | Sens. {p_sens:.1f}%",
+            transform=ax3.transAxes, fontsize=7.5,
+            va="bottom", ha="right",
+            bbox={
+                "boxstyle": "round,pad=0.34",
+                "facecolor": "#FFF8E1",
+                "edgecolor": "#FBBC05",
+                "linewidth": 1.0,
+            },
+        )
+
+        ax3.set_yticks(y3)
+        ax3.set_yticklabels(rotulos_curtos, fontsize=8.4, fontweight="bold")
+        ax3.set_ylim(len(cenarios_ordem) + 0.55, -1.05)
+        ax3.set_xlabel(r"Desempenho de Propagação (%)", fontsize=10.0, fontweight="bold")
+        ax3.set_title(
+            rf"Resumo: $\mathrm{{AUC}}_{{\mathrm{{SI}}}}$ e Alcance em $\beta = {beta_ref:.2f}$",
+            fontsize=11.2, fontweight="bold",
+        )
+        ax3.legend(loc="upper right", fontsize=7.8, framealpha=0.92, ncol=2)
+        ax3.grid(axis="x", alpha=0.28, linestyle=":")
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de difusão (simulação de propagação) salvo em: '{caminho_saida}'")
         return caminho_saida
 
     def exportar_html_interativo(

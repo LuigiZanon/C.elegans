@@ -10,10 +10,14 @@ from config import (
     SYNTHETIC_BENCHMARK_CONFIG,
     TOPOLOGY_CLASSIFICATION_CONFIG,
     NAVIGATION_ASSORTATIVITY_CONFIG,
+    PRESERVATION_ANALYSIS_CONFIG,
+    DIFFUSION_ANALYSIS_CONFIG,
 )
 from connectome_builder import ConnectomeBuilder
+from diffusion_analyzer import InformationDiffusionAnalyzer
 from flow_analyzer import ConnectomeAnalyzer
 from navigation_analyzer import NavigationAssortativityAnalyzer
+from preservation_analyzer import InformationPreservationAnalyzer
 from synthetic_benchmark import SyntheticNetworkBenchmark
 from topology_classifier import TopologyClassifier
 from visualizer import ConnectomeVisualizer
@@ -146,6 +150,52 @@ def main() -> None:
         f"'{caminho_csv_nav_fluxo}', '{caminho_csv_assort}' e '{caminho_json_nav}'"
     )
 
+    # 5d. Preservação de Informação (Reciprocidade, SCC/Bow-Tie, Modularidade e Ciclos Curtos)
+    preserv_analyzer = InformationPreservationAnalyzer(
+        grafo_multi,
+        membros_rich_club=set(membros_elite),
+        **PRESERVATION_ANALYSIS_CONFIG
+    )
+    resultado_preserv = preserv_analyzer.executar_analise_completa()
+    preserv_analyzer.exibir_relatorio_console(resultado_preserv)
+
+    caminho_csv_preserv_res = os.path.join(OUTPUT_DIR, "preservacao_metricas_resumo.csv")
+    resultado_preserv["df_resumo"].to_csv(caminho_csv_preserv_res, index=False)
+    caminho_csv_bowtie = os.path.join(OUTPUT_DIR, "preservacao_bowtie_classes.csv")
+    resultado_preserv["df_bowtie_classes"].to_csv(caminho_csv_bowtie, index=False)
+    caminho_csv_ciclos = os.path.join(OUTPUT_DIR, "preservacao_ciclos_motifs.csv")
+    resultado_preserv["df_ciclos_motifs"].to_csv(caminho_csv_ciclos, index=False)
+    caminho_json_preserv = os.path.join(OUTPUT_DIR, "preservacao_informacao.json")
+    with open(caminho_json_preserv, "w", encoding="utf-8") as f:
+        json.dump(resultado_preserv["resumo_json"], f, indent=2, ensure_ascii=False)
+    print(
+        f"Preservação de informação salva em: '{caminho_csv_preserv_res}', "
+        f"'{caminho_csv_bowtie}', '{caminho_csv_ciclos}' e '{caminho_json_preserv}'"
+    )
+
+    # 5e. Facilidade de Difusão de Informação (Métricas Estruturais + Simulações SI e IC/SIR)
+    diff_analyzer = InformationDiffusionAnalyzer(
+        grafo_multi,
+        membros_rich_club=set(membros_elite),
+        **DIFFUSION_ANALYSIS_CONFIG
+    )
+    resultado_diff = diff_analyzer.executar_analise_completa()
+    diff_analyzer.exibir_relatorio_console(resultado_diff)
+
+    caminho_csv_diff_est = os.path.join(OUTPUT_DIR, "difusao_estrutural_resumo.csv")
+    resultado_diff["df_estrutural"].to_csv(caminho_csv_diff_est, index=False)
+    caminho_csv_diff_si = os.path.join(OUTPUT_DIR, "difusao_si_resumo.csv")
+    resultado_diff["df_si_resumo"].to_csv(caminho_csv_diff_si, index=False)
+    caminho_csv_diff_ic = os.path.join(OUTPUT_DIR, "difusao_ic_curvas.csv")
+    resultado_diff["df_ic_curvas"].to_csv(caminho_csv_diff_ic, index=False)
+    caminho_json_diff = os.path.join(OUTPUT_DIR, "difusao_informacao.json")
+    with open(caminho_json_diff, "w", encoding="utf-8") as f:
+        json.dump(resultado_diff["resumo_json"], f, indent=2, ensure_ascii=False, allow_nan=False)
+    print(
+        f"Difusão de informação salva em: '{caminho_csv_diff_est}', "
+        f"'{caminho_csv_diff_si}', '{caminho_csv_diff_ic}' e '{caminho_json_diff}'"
+    )
+
     # 6. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
@@ -177,6 +227,29 @@ def main() -> None:
         resultado_nav["df_knn"],
         resultado_nav["resumo_json"]["assortatividade"]
     )
+    caminho_preserv_scc = visualizer.plotar_preservacao_reciprocidade_scc(
+        resultado_preserv["df_resumo"],
+        resultado_preserv["mat_reciprocidade"],
+        resultado_preserv["df_bowtie_classes"],
+        resultado_preserv["resumo_json"]
+    )
+    caminho_preserv_mod = visualizer.plotar_preservacao_modularidade_ciclos(
+        resultado_preserv["df_modularidade"],
+        resultado_preserv["df_ciclos_motifs"],
+        resultado_preserv["df_ciclos_por_classe"],
+        resultado_preserv["resumo_json"]
+    )
+    caminho_diff_est = visualizer.plotar_difusao_estrutural(
+        resultado_diff["df_estrutural"],
+        resultado_diff["df_distancias"],
+        resultado_diff["resumo_json"]
+    )
+    caminho_diff_sim = visualizer.plotar_simulacao_difusao(
+        resultado_diff["df_si_curvas"],
+        resultado_diff["df_si_resumo"],
+        resultado_diff["df_ic_curvas"],
+        resultado_diff["resumo_json"]
+    )
     visualizer.exportar_html_interativo(
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
@@ -191,6 +264,10 @@ def main() -> None:
             "Evidências: Livre de Escala (Cauda)": caminho_sf,
             "Navegação (Greedy Routing)": caminho_nav,
             "Assortatividade e k_nn(k)": caminho_assort,
+            "Preservação: Reciprocidade e SCC": caminho_preserv_scc,
+            "Preservação: Modularidade e Ciclos": caminho_preserv_mod,
+            "Difusão: Métricas Estruturais": caminho_diff_est,
+            "Difusão: Simulação SI e Cascata (IC)": caminho_diff_sim,
         },
         tabelas_ranking={
             "🏆 Chefes por Tipo": resumo_chefes,
