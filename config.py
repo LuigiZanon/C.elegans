@@ -119,3 +119,19 @@ PALETA_MODELOS_CAUDA = {
     "Exponencial (EXP)": "#FBBC05",
     "Poisson / ER": "#9E9E9E",
 }
+
+NAVIGATION_ASSORTATIVITY_CONFIG = {
+    "n_runs_null": 20,           # Repetições para modelos nulos (espacial e rewiring)
+    "n_pares_nulo": 5000,        # Pares alcançáveis amostrados por rodada nula (alta velocidade)
+    "max_hops_fator": 3,         # Limite de saltos = max(25, max_hops_fator * diametro)
+    "alpha_hibrido": 0.55,       # Peso do termo espacial na estratégia híbrida (0..1)
+    "seed_base": 42,             # Semente determinística global
+}
+
+PALETA_ESTRATEGIAS_NAVEGACAO = {
+    "Espacial (soma_pos)": "#4285F4",       # Azul
+    "Grau (Hubs)": "#EA4335",               # Vermelho
+    "Híbrido (Espacial + Grau)": "#34A853", # Verde
+    "Caminhada Aleatória": "#9E9E9E",       # Cinza
+}
+

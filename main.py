@@ -5,9 +5,15 @@ Todas as figuras e o HTML interativo multi-layout são salvos automaticamente na
 
 import os
 import json
-from config import OUTPUT_DIR, SYNTHETIC_BENCHMARK_CONFIG, TOPOLOGY_CLASSIFICATION_CONFIG
+from config import (
+    OUTPUT_DIR,
+    SYNTHETIC_BENCHMARK_CONFIG,
+    TOPOLOGY_CLASSIFICATION_CONFIG,
+    NAVIGATION_ASSORTATIVITY_CONFIG,
+)
 from connectome_builder import ConnectomeBuilder
 from flow_analyzer import ConnectomeAnalyzer
+from navigation_analyzer import NavigationAssortativityAnalyzer
 from synthetic_benchmark import SyntheticNetworkBenchmark
 from topology_classifier import TopologyClassifier
 from visualizer import ConnectomeVisualizer
@@ -117,6 +123,29 @@ def main() -> None:
         f"'{caminho_modelos_cauda}', '{caminho_ws_sweep}' e '{caminho_evidencias_json}'"
     )
 
+    # 5c. Navegabilidade (Roteamento Guloso / Greedy Routing) e Assortatividade
+    nav_analyzer = NavigationAssortativityAnalyzer(
+        grafo_multi,
+        membros_rich_club=set(membros_elite),
+        **NAVIGATION_ASSORTATIVITY_CONFIG
+    )
+    resultado_nav = nav_analyzer.executar_analise_completa()
+    nav_analyzer.exibir_relatorio_console(resultado_nav)
+
+    caminho_csv_nav = os.path.join(OUTPUT_DIR, "navegacao_greedy_resumo.csv")
+    resultado_nav["df_navegacao"].to_csv(caminho_csv_nav, index=False)
+    caminho_csv_nav_fluxo = os.path.join(OUTPUT_DIR, "navegacao_por_fluxo_funcional.csv")
+    resultado_nav["df_nav_fluxo"].to_csv(caminho_csv_nav_fluxo, index=False)
+    caminho_csv_assort = os.path.join(OUTPUT_DIR, "assortatividade_resumo.csv")
+    resultado_nav["df_assortatividade"].to_csv(caminho_csv_assort, index=False)
+    caminho_json_nav = os.path.join(OUTPUT_DIR, "navegacao_e_assortatividade.json")
+    with open(caminho_json_nav, "w", encoding="utf-8") as f:
+        json.dump(resultado_nav["resumo_json"], f, indent=2, ensure_ascii=False)
+    print(
+        f"Navegação e assortatividade salvas em: '{caminho_csv_nav}', "
+        f"'{caminho_csv_nav_fluxo}', '{caminho_csv_assort}' e '{caminho_json_nav}'"
+    )
+
     # 6. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
@@ -138,6 +167,16 @@ def main() -> None:
     caminho_sf = visualizer.plotar_evidencias_scale_free(
         resultado_topo["modelos_cauda_df"], resultado_topo["resumo_json"]["scale_free"]
     )
+    caminho_nav = visualizer.plotar_navegacao_greedy(
+        resultado_nav["df_navegacao"],
+        resultado_nav["df_nav_fluxo"],
+        resultado_nav["resumo_json"]["navegacao"]
+    )
+    caminho_assort = visualizer.plotar_assortatividade(
+        resultado_nav["df_assortatividade"],
+        resultado_nav["df_knn"],
+        resultado_nav["resumo_json"]["assortatividade"]
+    )
     visualizer.exportar_html_interativo(
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
@@ -150,6 +189,8 @@ def main() -> None:
             "Distribuição de Grau (Log-Log)": caminho_dist_grau,
             "Evidências: Small-World": caminho_sw,
             "Evidências: Livre de Escala (Cauda)": caminho_sf,
+            "Navegação (Greedy Routing)": caminho_nav,
+            "Assortatividade e k_nn(k)": caminho_assort,
         },
         tabelas_ranking={
             "🏆 Chefes por Tipo": resumo_chefes,

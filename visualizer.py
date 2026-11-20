@@ -23,6 +23,7 @@ from config import (
     PALETA_CORES_FUNCIONAIS,
     PALETA_MODELOS_SINTETICOS,
     PALETA_MODELOS_CAUDA,
+    PALETA_ESTRATEGIAS_NAVEGACAO,
     CENTROS_GRUPOS_FUNCIONAIS,
     PYVIS_PHYSICS_OPTIONS
 )
@@ -1253,6 +1254,342 @@ class ConnectomeVisualizer:
         fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
         plt.close(fig)
         print(f"Gráfico de evidências Scale-Free salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_navegacao_greedy(
+        self,
+        df_navegacao: pd.DataFrame,
+        df_nav_fluxo: pd.DataFrame,
+        resumo_nav: Dict[str, Any],
+        nome_arquivo: str = "navegacao_greedy.png"
+    ) -> str:
+        """
+        Gera figura 1x3 com os resultados do Roteamento Guloso (Greedy Routing):
+          - Painel 1: Taxa de Sucesso (S_R) e Eficiência (E_R) — Real vs. Modelos Nulos
+          - Painel 2: Fator de Alongamento (Stretch tau) — Média, Mediana e P90
+          - Painel 3: Heatmap 4x4 de Navegabilidade por Fluxo Funcional (destaque Sensorial -> Motor)
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        df_undir = df_navegacao[
+            df_navegacao["Visao"] == "Combinada (Não-Direcionada)"
+        ].copy()
+
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5.8))
+
+        estrategias = list(df_undir["Estrategia"])
+        nomes_curtos = [
+            e.replace(" (soma_pos)", "\n(soma_pos)")
+             .replace(" (Hubs)", "\n(Hubs)")
+             .replace(" (Espacial + Grau)", "\n(Esp.+Grau)")
+             .replace(" Aleatória", "\nAleatória")
+            for e in estrategias
+        ]
+        cores = [PALETA_ESTRATEGIAS_NAVEGACAO.get(e, "#607D8B") for e in estrategias]
+        x = np.arange(len(estrategias))
+        largura = 0.36
+
+        # --- Painel 1: Taxa de Sucesso (Real vs Nulo) + E_R ---
+        sr_real = df_undir["Taxa_Sucesso_Pct"].to_numpy(dtype=float)
+        sr_nulo = df_undir["Nulo_Sucesso_Media"].fillna(0.0).to_numpy(dtype=float)
+        sr_nulo_std = df_undir["Nulo_Sucesso_Std"].fillna(0.0).to_numpy(dtype=float)
+        er_vals = df_undir["Razao_Eficiencia"].to_numpy(dtype=float)
+
+        barras_real = ax1.bar(
+            x - largura / 2, sr_real, width=largura, color=cores,
+            edgecolor="#222222", linewidth=0.9, label="C. elegans (Real)"
+        )
+        ax1.bar(
+            x + largura / 2, sr_nulo, width=largura, yerr=sr_nulo_std,
+            color="#E0E0E0", edgecolor="#555555", linewidth=0.9,
+            hatch="///", capsize=3, error_kw={"elinewidth": 1.0, "ecolor": "#444444"},
+            label="Modelo Nulo (Espacial / Rewiring)"
+        )
+
+        for idx, barra in enumerate(barras_real):
+            h = barra.get_height()
+            ax1.text(
+                barra.get_x() + barra.get_width() / 2,
+                min(h + 2.0, 108.0),
+                f"{h:.1f}%\n" + r"$E_R$=" + f"{er_vals[idx]:.2f}",
+                ha="center", va="bottom", fontsize=8.5, fontweight="bold", color="#111111"
+            )
+
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(nomes_curtos, fontsize=9, fontweight="bold")
+        ax1.set_ylim(0, 118)
+        ax1.set_ylabel(r"Taxa de Sucesso $S_R$ (%)", fontsize=10.5, fontweight="bold")
+        ax1.set_title(
+            r"Taxa de Sucesso ($S_R$) e Eficiência ($E_R$): Real vs. Nulo",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax1.legend(loc="lower right", fontsize=8.5, framealpha=0.92)
+        ax1.grid(axis="y", alpha=0.3, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel 2: Fator de Alongamento (Stretch tau) ---
+        tau_medio = df_undir["Stretch_Medio"].fillna(1.0).to_numpy(dtype=float)
+        tau_mediana = df_undir["Stretch_Mediana"].fillna(1.0).to_numpy(dtype=float)
+        tau_p90 = df_undir["Stretch_P90"].fillna(1.0).to_numpy(dtype=float)
+        frac_otimo = df_undir["Frac_Otimo_Pct"].fillna(0.0).to_numpy(dtype=float)
+        pct_rc = df_undir["Pct_Rotas_Via_RichClub"].fillna(0.0).to_numpy(dtype=float)
+
+        w2 = 0.25
+        ax2.bar(
+            x - w2, tau_mediana, width=w2, color="#90CAF9", edgecolor="#222222",
+            linewidth=0.8, label=r"Mediana ($\tau_{50}$)"
+        )
+        barras_tau = ax2.bar(
+            x, tau_medio, width=w2, color=cores, edgecolor="#222222",
+            linewidth=0.9, label=r"Média ($\bar{\tau}$)"
+        )
+        ax2.bar(
+            x + w2, tau_p90, width=w2, color="#FFCC80", edgecolor="#222222",
+            linewidth=0.8, label=r"Percentil 90 ($\tau_{90}$)"
+        )
+        ax2.axhline(
+            1.0, color="#2E7D32", linestyle="--", linewidth=1.4,
+            label=r"Caminho Mínimo Ótimo ($\tau = 1{,}0$)"
+        )
+
+        y_max_tau = max(float(np.nanmax(tau_p90)) * 1.25, 2.2)
+        for idx, barra in enumerate(barras_tau):
+            topo = max(tau_p90[idx], tau_medio[idx])
+            ax2.text(
+                x[idx],
+                topo + 0.04 * y_max_tau,
+                f"Ót: {frac_otimo[idx]:.0f}%\nRC: {pct_rc[idx]:.0f}%",
+                ha="center", va="bottom", fontsize=8.0, fontweight="bold", color="#222222"
+            )
+
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(nomes_curtos, fontsize=9, fontweight="bold")
+        ax2.set_ylim(0, y_max_tau)
+        ax2.set_ylabel(r"Fator de Alongamento ($\tau = h_{\mathrm{greedy}} / d_{\mathrm{SP}}$)", fontsize=10.5, fontweight="bold")
+        ax2.set_title(
+            r"Qualidade das Rotas (Stretch $\tau$, % Ótimas e % Via Rich-Club)",
+            fontsize=11.5, fontweight="bold"
+        )
+        ax2.legend(loc="upper left", fontsize=8.0, framealpha=0.92)
+        ax2.grid(axis="y", alpha=0.3, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        # --- Painel 3: Heatmap 4x4 por Fluxo Funcional ---
+        melhor_est = resumo_nav.get("melhor_estrategia_undir", "Grau (Hubs)")
+        sub_fluxo = df_nav_fluxo[df_nav_fluxo["Estrategia"] == melhor_est]
+
+        classes = [
+            c for c in ORDEM_CLASSES_PADRAO
+            if (c in set(sub_fluxo["Tipo_Origem"])) or (c in set(sub_fluxo["Tipo_Destino"]))
+        ]
+        if not classes:
+            classes = sorted(set(sub_fluxo["Tipo_Origem"]) | set(sub_fluxo["Tipo_Destino"]))
+
+        n_cls = len(classes)
+        mat_sr = np.full((n_cls, n_cls), np.nan, dtype=float)
+        mat_tau = np.full((n_cls, n_cls), np.nan, dtype=float)
+
+        for _, row in sub_fluxo.iterrows():
+            orig = row["Tipo_Origem"]
+            dest = row["Tipo_Destino"]
+            if orig in classes and dest in classes:
+                i = classes.index(orig)
+                j = classes.index(dest)
+                mat_sr[i, j] = float(row["Taxa_Sucesso_Pct"])
+                mat_tau[i, j] = float(row["Stretch_Medio"])
+
+        im = ax3.imshow(mat_sr, cmap="YlGn", vmin=0.0, vmax=100.0, aspect="auto")
+        rotulos_cls = [
+            c.replace("Interneurônio (Comando)", "Inter.\n(Comando)")
+             .replace("Interneurônio", "Inter.")
+            for c in classes
+        ]
+        ax3.set_xticks(range(n_cls))
+        ax3.set_xticklabels(rotulos_cls, fontsize=8.5, fontweight="bold")
+        ax3.set_yticks(range(n_cls))
+        ax3.set_yticklabels(rotulos_cls, fontsize=8.5, fontweight="bold")
+        ax3.set_xlabel("Classe Funcional de Destino", fontsize=10, fontweight="bold")
+        ax3.set_ylabel("Classe Funcional de Origem", fontsize=10, fontweight="bold")
+        ax3.set_title(
+            f"Fluxo Funcional — {melhor_est}\n" + r"$S_R$ (%) e ($\bar{\tau}$)",
+            fontsize=11.0, fontweight="bold"
+        )
+
+        for i in range(n_cls):
+            for j in range(n_cls):
+                val_sr = mat_sr[i, j]
+                val_tau = mat_tau[i, j]
+                if np.isnan(val_sr):
+                    txt = "—"
+                    cor_txt = "#555555"
+                else:
+                    tau_str = f"{val_tau:.2f}" if not np.isnan(val_tau) else "—"
+                    txt = f"{val_sr:.1f}%\n({tau_str})"
+                    cor_txt = "white" if val_sr >= 65.0 else "#111111"
+                ax3.text(
+                    j, i, txt, ha="center", va="center",
+                    fontsize=8.5, fontweight="bold", color=cor_txt
+                )
+                # Destaque visual para o canal biológico Sensorial -> Motor
+                if classes[i] == "Sensorial" and classes[j] == "Motor":
+                    rect = plt.Rectangle(
+                        (j - 0.48, i - 0.48), 0.96, 0.96,
+                        fill=False, edgecolor="#D32F2F", linewidth=2.4
+                    )
+                    ax3.add_patch(rect)
+
+        cbar = fig.colorbar(im, ax=ax3, fraction=0.046, pad=0.04)
+        cbar.set_label(r"$S_R$ (%)", fontsize=9, fontweight="bold")
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de navegabilidade (Greedy Routing) salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_assortatividade(
+        self,
+        df_assortatividade: pd.DataFrame,
+        df_knn: pd.DataFrame,
+        resumo_assort: Dict[str, Any],
+        nome_arquivo: str = "assortatividade_conectoma.png"
+    ) -> str:
+        """
+        Gera figura 1x2 com o diagnóstico de Assortatividade do conectoma:
+          - Painel Esquerdo: Curva k_nn(k) vs. k em escala log-log (Real vs. Nulo) + reta beta_knn
+          - Painel Direito: Perfil multidimensional de assortatividade r (barras divergentes)
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.0))
+
+        # --- Painel Esquerdo: Curva k_nn(k) vs. k (log-log) ---
+        if not df_knn.empty:
+            k_vals = df_knn["k"].to_numpy(dtype=float)
+            knn_real = df_knn["knn_real"].to_numpy(dtype=float)
+            knn_nulo = df_knn["knn_nulo_media"].to_numpy(dtype=float)
+            knn_std = df_knn["knn_nulo_std"].fillna(0.0).to_numpy(dtype=float)
+
+            mask_nulo = np.isfinite(knn_nulo) & (knn_nulo > 0)
+            if np.any(mask_nulo):
+                k_n = k_vals[mask_nulo]
+                med_n = knn_nulo[mask_nulo]
+                std_n = knn_std[mask_nulo]
+                baixo = np.maximum(med_n - std_n, 1e-2)
+                alto = med_n + std_n
+                ax1.fill_between(
+                    k_n, baixo, alto, color="#BDBDBD", alpha=0.40,
+                    label=r"Modelo Nulo (Rewiring, $\mu \pm \sigma$)"
+                )
+                ax1.plot(
+                    k_n, med_n, color="#616161", linestyle="--", linewidth=1.6,
+                    label=r"Média Nula $k_{\mathrm{nn}}^{\mathrm{nulo}}(k)$"
+                )
+
+            ax1.scatter(
+                k_vals, knn_real, color="#1565C0", s=34, alpha=0.85, zorder=4,
+                edgecolor="white", linewidth=0.5, label=r"C. elegans (Empírico)"
+            )
+
+            beta_knn = float(resumo_assort.get("beta_knn", 0.0))
+            intercept_knn = float(resumo_assort.get("intercept_knn", 0.0))
+            if len(k_vals) >= 2:
+                k_grid = np.geomspace(float(np.min(k_vals)), float(np.max(k_vals)), 100)
+                knn_fit = np.exp(intercept_knn) * np.power(k_grid, beta_knn)
+                ax1.plot(
+                    k_grid, knn_fit, color="#D32F2F", linewidth=2.2, zorder=5,
+                    label=r"Ajuste Log-Log ($\beta_{k_{\mathrm{nn}}} = " + f"{beta_knn:.3f}" + r"$)"
+                )
+
+        ax1.set_xscale("log")
+        ax1.set_yscale("log")
+        ax1.set_xlabel(r"Grau do Neurônio ($k$)", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(r"Grau Médio dos Vizinhos ($k_{\mathrm{nn}}(k)$)", fontsize=11, fontweight="bold")
+        ax1.set_title(
+            r"Correlação Grau-Grau: Curva $k_{\mathrm{nn}}(k)$ vs. $k$ (Log-Log)",
+            fontsize=12, fontweight="bold"
+        )
+        ax1.legend(loc="lower left", fontsize=8.8, framealpha=0.92)
+        ax1.grid(True, which="both", alpha=0.25, linestyle=":")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        r_real = float(resumo_assort.get("r_grau_combinada", 0.0))
+        r_nulo_med = float(resumo_assort.get("r_grau_nulo_media", 0.0))
+        z_r = float(resumo_assort.get("z_score_r_grau", 0.0))
+        dist_real = float(resumo_assort.get("distancia_fisica_media_aresta", 0.0))
+        dist_nula = float(resumo_assort.get("distancia_fisica_media_nula", 0.0))
+
+        caixa_texto = (
+            r"$r_k$ (Real) = " + f"{r_real:+.3f}\n"
+            + r"$r_k$ (Nulo) = " + f"{r_nulo_med:+.3f}\n"
+            + r"$Z$-score = " + f"{z_r:+.2f}\n"
+            + r"$\bar{d}_{\mathrm{aresta}}$ = " + f"{dist_real:.3f} (Nulo: {dist_nula:.3f})"
+        )
+        ax1.text(
+            0.97, 0.96, caixa_texto,
+            transform=ax1.transAxes,
+            fontsize=9.2,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox={
+                "boxstyle": "round,pad=0.5",
+                "facecolor": "#F8F9FA",
+                "edgecolor": "#B0BEC5",
+                "linewidth": 1.1,
+            },
+        )
+
+        # --- Painel Direito: Barras Horizontais Divergentes de Assortatividade ---
+        itens_perfil = [
+            (r"Grau — Combinada ($r_k$)", float(resumo_assort.get("r_grau_combinada", 0.0))),
+            (r"Grau — Combinada Ponderada ($r_k^w$)", float(resumo_assort.get("r_grau_combinada_ponderada", 0.0))),
+            (r"Grau — Química Direcionada ($\mathrm{out} \to \mathrm{in}$)", float(resumo_assort.get("r_quimica_out_in", 0.0))),
+            (r"Grau — Elétrica ($r_k^{\mathrm{elet}}$)", float(resumo_assort.get("r_eletrica_grau", 0.0))),
+            ("Homofilia Funcional (tipo_funcional)", float(resumo_assort.get("r_homofilia_tipo_funcional", 0.0))),
+            ("Homofilia Anatômica (regiao_soma)", float(resumo_assort.get("r_homofilia_regiao_soma", 0.0))),
+            ("Correlação Espacial (soma_pos)", float(resumo_assort.get("r_espacial_soma_pos", 0.0))),
+        ]
+
+        rotulos = [item[0] for item in itens_perfil]
+        valores = [item[1] for item in itens_perfil]
+        cores_barras = ["#34A853" if v >= 0.0 else "#EA4335" for v in valores]
+        y_pos = np.arange(len(rotulos))
+
+        barras = ax2.barh(
+            y_pos, valores, color=cores_barras, edgecolor="#222222", linewidth=0.85, height=0.62
+        )
+        ax2.axvline(0.0, color="#222222", linewidth=1.2)
+
+        limite_x = max(0.35, min(1.05, max(abs(v) for v in valores) + 0.16))
+        ax2.set_xlim(-limite_x, limite_x)
+
+        for barra, val in zip(barras, valores):
+            desloc = 0.02 * limite_x if val >= 0 else -0.02 * limite_x
+            ha = "left" if val >= 0 else "right"
+            ax2.text(
+                val + desloc,
+                barra.get_y() + barra.get_height() / 2,
+                f"{val:+.3f}",
+                va="center", ha=ha, fontsize=9.2, fontweight="bold", color="#111111"
+            )
+
+        ax2.set_yticks(y_pos)
+        ax2.set_yticklabels(rotulos, fontsize=9.5, fontweight="bold")
+        ax2.invert_yaxis()
+        ax2.set_xlabel(r"Coeficiente de Assortatividade ($r \in [-1, 1]$)", fontsize=11, fontweight="bold")
+        ax2.set_title(
+            r"Perfil Multidimensional de Assortatividade (Verde: Assortativo | Vermelho: Disassortativo)",
+            fontsize=11.0, fontweight="bold"
+        )
+        ax2.grid(axis="x", alpha=0.3, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de assortatividade salvo em: '{caminho_saida}'")
         return caminho_saida
 
     def exportar_html_interativo(
