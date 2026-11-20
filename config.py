@@ -102,3 +102,20 @@ PALETA_MODELOS_SINTETICOS = {
     "Watts-Strogatz (WS)": "#34A853", # Verde (Small-World)
     "Barabási-Albert (BA)": "#4285F4" # Azul (Livre de Escala)
 }
+
+TOPOLOGY_CLASSIFICATION_CONFIG = {
+    "n_runs_null": 30,          # Redes nulas ER para Z-scores e intervalos de confiança
+    "n_runs_ws_sweep": 15,      # Repetições por ponto na curva de transição de Watts-Strogatz
+    "n_bootstrap_ks": 200,      # Réplicas semi-paramétricas para p-valor KS (Clauset et al.)
+    "min_tail_size": 30,        # Mínimo de neurônios exigidos na cauda k >= k_min
+    "seed_base": 42,            # Semente determinística global
+}
+
+PALETA_MODELOS_CAUDA = {
+    "Empírico (C. elegans)": "#111111",
+    "Lei de Potência (PL)": "#EA4335",
+    "PL Truncada (TPL)": "#34A853",
+    "Log-Normal (LN)": "#4285F4",
+    "Exponencial (EXP)": "#FBBC05",
+    "Poisson / ER": "#9E9E9E",
+}

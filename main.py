@@ -5,10 +5,11 @@ Todas as figuras e o HTML interativo multi-layout são salvos automaticamente na
 
 import os
 import json
-from config import OUTPUT_DIR, SYNTHETIC_BENCHMARK_CONFIG
+from config import OUTPUT_DIR, SYNTHETIC_BENCHMARK_CONFIG, TOPOLOGY_CLASSIFICATION_CONFIG
 from connectome_builder import ConnectomeBuilder
 from flow_analyzer import ConnectomeAnalyzer
 from synthetic_benchmark import SyntheticNetworkBenchmark
+from topology_classifier import TopologyClassifier
 from visualizer import ConnectomeVisualizer
 
 
@@ -97,6 +98,25 @@ def main() -> None:
         json.dump(diagnostico_topo, f, indent=2, ensure_ascii=False)
     print(f"Benchmark salvo em: '{caminho_csv_sint}' e '{caminho_json_diag}'")
 
+    # 5b. Diagnóstico topológico formal com evidências (Aleatório vs. Small-World vs. Scale-Free)
+    classifier = TopologyClassifier(grafo_multi, **TOPOLOGY_CLASSIFICATION_CONFIG)
+    resultado_topo = classifier.executar_diagnostico_completo()
+    classifier.exibir_relatorio_console(resultado_topo)
+
+    caminho_scorecard = os.path.join(OUTPUT_DIR, "scorecard_hipoteses.csv")
+    resultado_topo["scorecard_df"].to_csv(caminho_scorecard, index=False)
+    caminho_modelos_cauda = os.path.join(OUTPUT_DIR, "comparacao_modelos_cauda.csv")
+    resultado_topo["modelos_cauda_df"].to_csv(caminho_modelos_cauda, index=False)
+    caminho_ws_sweep = os.path.join(OUTPUT_DIR, "ws_transicao_sweep.csv")
+    resultado_topo["ws_sweep_df"].to_csv(caminho_ws_sweep, index=False)
+    caminho_evidencias_json = os.path.join(OUTPUT_DIR, "evidencias_classificacao_topologica.json")
+    with open(caminho_evidencias_json, "w", encoding="utf-8") as f:
+        json.dump(resultado_topo["resumo_json"], f, indent=2, ensure_ascii=False)
+    print(
+        f"Evidências de classificação topológica salvas em: '{caminho_scorecard}', "
+        f"'{caminho_modelos_cauda}', '{caminho_ws_sweep}' e '{caminho_evidencias_json}'"
+    )
+
     # 6. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
@@ -112,6 +132,12 @@ def main() -> None:
     caminho_dist_grau = visualizer.plotar_distribuicao_grau_comparativa(
         graus_por_modelo, diagnostico_topo, nome_arquivo="distribuicao_grau_comparativa.png"
     )
+    caminho_sw = visualizer.plotar_evidencias_small_world(
+        resultado_topo["ws_sweep_df"], resultado_topo["resumo_json"]["small_world"]
+    )
+    caminho_sf = visualizer.plotar_evidencias_scale_free(
+        resultado_topo["modelos_cauda_df"], resultado_topo["resumo_json"]["scale_free"]
+    )
     visualizer.exportar_html_interativo(
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
@@ -122,6 +148,8 @@ def main() -> None:
             "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo,
             "Comparação com Redes Sintéticas": caminho_sinteticas,
             "Distribuição de Grau (Log-Log)": caminho_dist_grau,
+            "Evidências: Small-World": caminho_sw,
+            "Evidências: Livre de Escala (Cauda)": caminho_sf,
         },
         tabelas_ranking={
             "🏆 Chefes por Tipo": resumo_chefes,

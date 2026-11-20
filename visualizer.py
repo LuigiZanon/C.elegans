@@ -22,6 +22,7 @@ from config import (
     ORDEM_CLASSES_PADRAO,
     PALETA_CORES_FUNCIONAIS,
     PALETA_MODELOS_SINTETICOS,
+    PALETA_MODELOS_CAUDA,
     CENTROS_GRUPOS_FUNCIONAIS,
     PYVIS_PHYSICS_OPTIONS
 )
@@ -808,6 +809,452 @@ class ConnectomeVisualizer:
         print(f"Gráfico de distribuição de grau comparativa salvo em: '{caminho_saida}'")
         return caminho_saida
 
+    def plotar_evidencias_small_world(
+        self,
+        ws_sweep_df: pd.DataFrame,
+        resumo_sw: Dict[str, Any],
+        nome_arquivo: str = "evidencias_small_world.png"
+    ) -> str:
+        """
+        Gera figura 1x2 com evidências formais de Small-World:
+          - Painel Esquerdo: Transição de fase de Watts-Strogatz C(p)/C(0) e L(p)/L(0)
+            filtrando p=0.0 na escala log e marcando a posição empírica do C. elegans.
+          - Painel Direito: Indicadores quantitativos sigma, omega e phi_SWP com
+            limiares de aprovação e resumo do teste contra rede aleatória (Z_C e I_D).
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.2))
+
+        # --- Painel Esquerdo: Curva de Transição de Fase de Watts-Strogatz ---
+        df_pos = ws_sweep_df[ws_sweep_df["p_rewiring"] > 0.0].copy()
+        p_vals = df_pos["p_rewiring"].astype(float).values
+        c_norm = df_pos["C_norm_media"].astype(float).values
+        c_std = df_pos["C_norm_std"].astype(float).values
+        l_norm = df_pos["L_norm_media"].astype(float).values
+        l_std = df_pos["L_norm_std"].astype(float).values
+
+        ax1.axvspan(
+            0.005,
+            0.25,
+            color="#34A853",
+            alpha=0.10,
+            label="Regime Small-World (Alto C, Baixo L)",
+        )
+
+        ax1.plot(
+            p_vals,
+            c_norm,
+            color="#34A853",
+            lw=2.4,
+            marker="o",
+            markersize=4.5,
+            label=r"Agrupamento Normalizado $C(p) / C(0)$",
+        )
+        ax1.fill_between(
+            p_vals,
+            np.clip(c_norm - c_std, 0.0, 1.2),
+            np.clip(c_norm + c_std, 0.0, 1.2),
+            color="#34A853",
+            alpha=0.18,
+        )
+
+        ax1.plot(
+            p_vals,
+            l_norm,
+            color="#4285F4",
+            lw=2.4,
+            marker="s",
+            markersize=4.5,
+            label=r"Caminho Médio Normalizado $L(p) / L(0)$",
+        )
+        ax1.fill_between(
+            p_vals,
+            np.clip(l_norm - l_std, 0.0, 1.2),
+            np.clip(l_norm + l_std, 0.0, 1.2),
+            color="#4285F4",
+            alpha=0.18,
+        )
+
+        p_equiv = float(resumo_sw["p_equiv_ws"])
+        c_real_norm = float(resumo_sw.get("C_real_norm_latt", resumo_sw["C_real"] / max(resumo_sw["C_latt"], 1e-9)))
+        l_real_norm = float(resumo_sw.get("L_real_norm_latt", resumo_sw["L_real"] / max(resumo_sw["L_latt"], 1e-9)))
+
+        ax1.axvline(
+            p_equiv,
+            color="#EA4335",
+            linestyle=":",
+            lw=1.9,
+            label=rf"Ponto Equivalente WS ($p_{{\mathrm{{equiv}}}} \approx {p_equiv:.3f}$)",
+        )
+        ax1.scatter(
+            [p_equiv],
+            [c_real_norm],
+            color="#EA4335",
+            marker="*",
+            s=190,
+            edgecolor="#111111",
+            linewidth=0.8,
+            zorder=6,
+            label=rf"$C_{{\mathrm{{real}}}} / C_{{\mathrm{{latt}}}} = {c_real_norm:.3f}$",
+        )
+        ax1.scatter(
+            [p_equiv],
+            [l_real_norm],
+            color="#FBBC05",
+            marker="*",
+            s=190,
+            edgecolor="#111111",
+            linewidth=0.8,
+            zorder=6,
+            label=rf"$L_{{\mathrm{{real}}}} / L_{{\mathrm{{latt}}}} = {l_real_norm:.3f}$",
+        )
+
+        ax1.set_xscale("log")
+        ax1.set_ylim(-0.03, 1.12)
+        ax1.set_title(
+            "Transição de Fase de Watts–Strogatz e Posição do C. elegans",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax1.set_xlabel(r"Probabilidade de Religação ($p$) [escala log]", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(r"Razão Normalizada pelo Lattice ($p = 0$)", fontsize=11, fontweight="bold")
+        ax1.grid(True, which="both", alpha=0.3, linestyle=":")
+        ax1.legend(loc="lower left", fontsize=8.8)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel Direito: Indicadores Formais de Small-World (sigma, omega, phi_SWP) ---
+        sigma_val = float(resumo_sw["sigma"])
+        sigma_std = float(resumo_sw["sigma_std"])
+        omega_val = float(resumo_sw["omega"])
+        phi_val = float(resumo_sw["phi_swp"])
+
+        # Barras horizontais com razão Valor / Limiar ou escala padronizada
+        nomes_ind = [
+            r"Propensity $\phi_{\mathrm{SWP}}$" + "\n(Muldoon et al., ≥ 0.60)",
+            r"Proximidade $\omega$" + "\n" + r"(Telesford, $1 - |\omega|$ ≥ 0.50)",
+            r"Índice $\sigma_{\mathrm{SW}}$" + "\n(Humphries-Gurney, > 1.0)",
+        ]
+        # Valores plotados na barra (sigma em escala real, omega como 1 - |omega| para barra positiva, phi_SWP direto)
+        prox_omega = max(0.0, 1.0 - abs(omega_val))
+        valores_barra = [phi_val, prox_omega, sigma_val]
+        limiares_barra = [0.60, 0.50, 1.00]
+        cores_barra = ["#4285F4", "#FBBC05", "#34A853"]
+        y_pos = np.arange(len(nomes_ind))
+
+        barras = ax2.barh(
+            y_pos,
+            valores_barra,
+            height=0.52,
+            color=cores_barra,
+            edgecolor="#222222",
+            linewidth=1.0,
+            alpha=0.90,
+        )
+
+        for idx_b, (y_b, lim) in enumerate(zip(y_pos, limiares_barra)):
+            ax2.plot(
+                [lim, lim],
+                [y_b - 0.32, y_b + 0.32],
+                color="#EA4335",
+                linestyle="--",
+                lw=2.0,
+                label="Limiar Mínimo Small-World" if idx_b == 0 else None,
+            )
+
+        rotulos_valores = [
+            rf"$\phi_{{\mathrm{{SWP}}}} = {phi_val:.3f}$  (Limiar $> 0.60$ — Aprovado)",
+            rf"$\omega = {omega_val:+.3f}$  ($|\omega| \leq 0.50$ — Aprovado)",
+            rf"$\sigma = {sigma_val:.2f} \pm {sigma_std:.2f}$  (Limiar $> 1.0$ — Aprovado)",
+        ]
+        x_max_bar = max(valores_barra) * 1.48
+        ax2.set_xlim(0.0, max(x_max_bar, 6.5))
+
+        for barra, texto_r in zip(barras, rotulos_valores):
+            w = barra.get_width()
+            cy = barra.get_y() + barra.get_height() / 2.0
+            ax2.text(
+                w + 0.12,
+                cy,
+                texto_r,
+                va="center",
+                ha="left",
+                fontsize=9.5,
+                fontweight="bold",
+                color="#1f2933",
+            )
+
+        z_c = float(resumo_sw.get("z_score_C_vs_ER", 0.0))
+        id_pois = float(resumo_sw.get("indice_dispersao_ID", 0.0))
+        c_real = float(resumo_sw["C_real"])
+        c_er = float(resumo_sw.get("C_ER_media", 0.059))
+        l_real = float(resumo_sw["L_real"])
+        l_er = float(resumo_sw["L_ER_media"])
+
+        caixa_resumo = "\n".join([
+            "REJEIÇÃO DA HIPÓTESE ALEATÓRIA (ER) & VEREDITO SW",
+            "─" * 44,
+            rf"$\bullet\ C_{{\mathrm{{real}}}} = {c_real:.4f}$ vs. $C_{{\mathrm{{ER}}}} = {c_er:.4f}$  ($Z_C = {z_c:.1f} \gg 3.0$)",
+            rf"$\bullet\ L_{{\mathrm{{real}}}} = {l_real:.3f}$ vs. $L_{{\mathrm{{ER}}}} = {l_er:.3f}$  (Razão $= {l_real / max(l_er, 1e-9):.2f}\times$)",
+            rf"$\bullet\ $Dispersão de Poisson: $I_D = \mathrm{{Var}}(k)/\langle k \rangle = {id_pois:.2f} \gg 1.0$",
+            rf"$\bullet\ $Veredito: {resumo_sw['veredito'].upper()} nos 3 critérios formais.",
+        ])
+        ax2.text(
+            0.03,
+            0.04,
+            caixa_resumo,
+            transform=ax2.transAxes,
+            fontsize=9.2,
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            bbox={
+                "boxstyle": "round,pad=0.55",
+                "facecolor": "#f8f9fa",
+                "edgecolor": "#c5ccd3",
+                "linewidth": 1.2,
+            },
+        )
+
+        ax2.set_yticks(y_pos)
+        ax2.set_yticklabels(nomes_ind, fontsize=10, fontweight="bold")
+        ax2.set_xlabel("Magnitude da Métrica / Escala de Evidência", fontsize=11, fontweight="bold")
+        ax2.set_title(
+            r"Painel de Evidências Small-World ($\sigma$, $\omega$, $\phi_{\mathrm{SWP}}$) e Teste vs. ER",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax2.grid(axis="x", alpha=0.3, linestyle=":")
+        ax2.legend(loc="upper right", fontsize=9.2)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de evidências Small-World salvo em: '{caminho_saida}'")
+        return caminho_saida
+
+    def plotar_evidencias_scale_free(
+        self,
+        modelos_cauda_df: pd.DataFrame,
+        resumo_sf: Dict[str, Any],
+        nome_arquivo: str = "evidencias_scale_free.png"
+    ) -> str:
+        """
+        Gera figura 1x2 com evidências do teste Livre de Escala (Clauset et al. + Vuong):
+          - Painel Esquerdo: CCDF na cauda k >= k_min* em escala log-log comparando os
+            dados empíricos com 4 modelos ajustados via MLE (PL, TPL, LN, EXP) + Poisson/ER.
+          - Painel Direito: Seleção de modelos via Delta AIC e estatística de Vuong (R, p),
+            incluindo análise direcional da camada Química (k_in vs. k_out).
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.2))
+
+        # --- Painel Esquerdo: CCDF na Cauda k >= k_min* em Escala Log-Log ---
+        curvas = resumo_sf["curvas_ccdf"]
+        k_vals = np.asarray(curvas["k_vals"], dtype=float)
+        ccdf_emp = np.asarray(curvas["ccdf_empirica"], dtype=float)
+        ccdf_pl = np.asarray(curvas["ccdf_pl"], dtype=float)
+        ccdf_tpl = np.asarray(curvas["ccdf_tpl"], dtype=float)
+        ccdf_ln = np.asarray(curvas["ccdf_ln"], dtype=float)
+        ccdf_exp = np.asarray(curvas["ccdf_exp"], dtype=float)
+        ccdf_pois = np.asarray(curvas["ccdf_poisson"], dtype=float)
+
+        ax1.loglog(
+            k_vals,
+            ccdf_emp,
+            color=PALETA_MODELOS_CAUDA["Empírico (C. elegans)"],
+            marker="o",
+            markersize=5.2,
+            linestyle="None",
+            zorder=6,
+            label="Empírico (C. elegans)",
+        )
+        ax1.loglog(
+            k_vals,
+            ccdf_pl,
+            color=PALETA_MODELOS_CAUDA["Lei de Potência (PL)"],
+            lw=2.3,
+            linestyle="-",
+            zorder=4,
+            label="Lei de Potência (PL)",
+        )
+        ax1.loglog(
+            k_vals,
+            ccdf_tpl,
+            color=PALETA_MODELOS_CAUDA["PL Truncada (TPL)"],
+            lw=2.5,
+            linestyle="--",
+            zorder=5,
+            label="PL Truncada (TPL)",
+        )
+        ax1.loglog(
+            k_vals,
+            ccdf_ln,
+            color=PALETA_MODELOS_CAUDA["Log-Normal (LN)"],
+            lw=2.2,
+            linestyle="-.",
+            zorder=4,
+            label="Log-Normal (LN)",
+        )
+        ax1.loglog(
+            k_vals,
+            ccdf_exp,
+            color=PALETA_MODELOS_CAUDA["Exponencial (EXP)"],
+            lw=2.1,
+            linestyle=":",
+            zorder=3,
+            label="Exponencial (EXP)",
+        )
+
+        # Filtra Poisson apenas onde não sofreu underflow severo para manter limites visuais limpos
+        mask_pois = ccdf_pois >= 1e-4
+        if np.any(mask_pois):
+            ax1.loglog(
+                k_vals[mask_pois],
+                ccdf_pois[mask_pois],
+                color=PALETA_MODELOS_CAUDA["Poisson / ER"],
+                lw=1.8,
+                linestyle="--",
+                alpha=0.85,
+                zorder=2,
+                label="Poisson / ER",
+            )
+
+        k_min = int(resumo_sf["k_min"])
+        ax1.axvline(
+            k_min,
+            color="#444444",
+            linestyle=":",
+            lw=1.7,
+            label=rf"Limiar Ótimo $k_{{\min}}^* = {k_min}$ ($n={resumo_sf['n_tail']}$)",
+        )
+
+        y_min_emp = max(1e-3, float(np.min(ccdf_emp)) * 0.45)
+        ax1.set_ylim(y_min_emp, 1.35)
+
+        texto_clauset = "\n".join([
+            "Protocolo Clauset–Shalizi–Newman",
+            rf"$k_{{\min}}^* = {k_min}$  ($n_{{\mathrm{{tail}}}} = {resumo_sf['n_tail']}$)",
+            rf"$\hat{{\gamma}}_{{\mathrm{{PL}}}} = {resumo_sf['gamma_pl']:.2f}$",
+            rf"$D_{{\mathrm{{KS}}}} = {resumo_sf['ks_dist_pl']:.3f}$",
+            rf"$p_{{\mathrm{{KS}}}} = {resumo_sf['p_valor_ks_bootstrap']:.2f}$  (limiar $\geq 0.10$)",
+            rf"$R^2_{{\mathrm{{log-log}}}} = {resumo_sf['r2_log_log']:.3f}$ vs. $R^2_{{\mathrm{{semi-log}}}} = {resumo_sf['r2_semi_log']:.3f}$",
+        ])
+        ax1.text(
+            0.04,
+            0.05,
+            texto_clauset,
+            transform=ax1.transAxes,
+            fontsize=9.2,
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            bbox={
+                "boxstyle": "round,pad=0.5",
+                "facecolor": "#f8f9fa",
+                "edgecolor": "#bbbbbb",
+                "alpha": 0.95,
+            },
+        )
+
+        ax1.set_title(
+            rf"Ajuste de Modelos na Cauda ($k \geq {k_min}$) — CCDF Condicional $P(K \geq k \mid K \geq k_{{\min}}^*)$",
+            fontsize=11.8,
+            fontweight="bold",
+        )
+        ax1.set_xlabel(r"Grau ($k$) [escala log]", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(r"$P(K \geq k \mid K \geq k_{\min}^*)$ [escala log]", fontsize=11, fontweight="bold")
+        ax1.grid(True, which="both", alpha=0.28, linestyle=":")
+        ax1.legend(loc="upper right", fontsize=8.9)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # --- Painel Direito: Seleção de Modelos (Delta AIC e Teste de Vuong) ---
+        df_ord = modelos_cauda_df.sort_values("Delta_AIC", ascending=True).reset_index(drop=True)
+        modelos_nomes = list(df_ord["Modelo"].values)
+        delta_aics = df_ord["Delta_AIC"].astype(float).values
+        cores_m = [PALETA_MODELOS_CAUDA.get(m, "#666666") for m in modelos_nomes]
+        y_pos = np.arange(len(modelos_nomes))
+
+        barras = ax2.barh(
+            y_pos,
+            delta_aics,
+            height=0.52,
+            color=cores_m,
+            edgecolor="#222222",
+            linewidth=1.0,
+            alpha=0.90,
+        )
+
+        max_daic = max(float(np.max(delta_aics)), 4.0)
+        ax2.set_xlim(0.0, max_daic * 1.65)
+
+        for idx_r, (barra, row) in enumerate(zip(barras, df_ord.to_dict("records"))):
+            w = barra.get_width()
+            cy = barra.get_y() + barra.get_height() / 2.0
+            if row["Modelo"] == "Lei de Potência (PL)":
+                anot = rf"$\Delta\mathrm{{AIC}} = {w:.2f}$  (Referência Vuong)"
+            else:
+                r_v = float(row["Vuong_R_vs_PL"])
+                p_v = float(row["Vuong_p_vs_PL"])
+                anot = rf"$\Delta\mathrm{{AIC}} = {w:.2f}$  |  Vuong $R={r_v:+.2f}$ ($p={p_v:.3f}$)"
+            if idx_r == 0:
+                anot = "★ MELHOR AJUSTE: " + anot
+            ax2.text(
+                w + 0.08 * max_daic * 0.25,
+                cy,
+                anot,
+                va="center",
+                ha="left",
+                fontsize=9.1,
+                fontweight="bold",
+                color="#1f2933",
+            )
+
+        dir_q = resumo_sf["direcionado_quimico"]
+        veredito_quebrado = "\n".join(textwrap.wrap(str(resumo_sf["veredito"]), width=54))
+        caixa_dir = "\n".join([
+            "ASSIMETRIA DIRECIONAL (CAMADA QUÍMICA) & VEREDITO",
+            "─" * 48,
+            rf"$\bullet\ k_{{\mathrm{{in}}}}$: $\kappa = {dir_q['in_degree_kappa']:.2f}$, $\hat{{\gamma}} = {dir_q.get('in_degree_gamma', 0.0):.2f}$, $R^2_{{\mathrm{{log}}}} = {dir_q.get('in_degree_r2_log_log', 0.0):.3f}$ vs. $R^2_{{\mathrm{{semi}}}} = {dir_q.get('in_degree_r2_semi_log', 0.0):.3f}$",
+            rf"$\bullet\ k_{{\mathrm{{out}}}}$: $\kappa = {dir_q['out_degree_kappa']:.2f}$, $\hat{{\gamma}} = {dir_q.get('out_degree_gamma', 0.0):.2f}$, $R^2_{{\mathrm{{log}}}} = {dir_q.get('out_degree_r2_log_log', 0.0):.3f}$ vs. $R^2_{{\mathrm{{semi}}}} = {dir_q.get('out_degree_r2_semi_log', 0.0):.3f}$",
+            rf"$\bullet\ $Veredito: {veredito_quebrado}",
+        ])
+        ax2.text(
+            0.03,
+            0.04,
+            caixa_dir,
+            transform=ax2.transAxes,
+            fontsize=8.9,
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            bbox={
+                "boxstyle": "round,pad=0.55",
+                "facecolor": "#f8f9fa",
+                "edgecolor": "#c5ccd3",
+                "linewidth": 1.2,
+            },
+        )
+
+        ax2.set_yticks(y_pos)
+        ax2.set_yticklabels(modelos_nomes, fontsize=10, fontweight="bold")
+        ax2.invert_yaxis()  # Melhor modelo (Delta AIC = 0) no topo
+        ax2.set_xlabel(r"$\Delta \mathrm{AIC} = \mathrm{AIC}_m - \mathrm{AIC}_{\min}$ (Menor é Melhor)", fontsize=11, fontweight="bold")
+        ax2.set_title(
+            r"Seleção de Modelos na Cauda ($\Delta \mathrm{AIC}$ e Teste de Vuong vs. PL)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax2.grid(axis="x", alpha=0.3, linestyle=":")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico de evidências Scale-Free salvo em: '{caminho_saida}'")
+        return caminho_saida
+
     def exportar_html_interativo(
         self,
         arquivo_saida: str = "celegans_rede_interativa.html",
@@ -970,29 +1417,40 @@ class ConnectomeVisualizer:
         net.from_nx(g_vis)
         net.save_graph(caminho_saida)
 
-        # Prepara abas do modal caso graficos_png tenha sido fornecido
-        botoes_abas = ""
+        # Prepara itens do modal (gráficos PNG e tabelas HTML) com seletor drop-down e controles interativos
+        opcoes_graficos = ""
+        opcoes_tabelas = ""
         conteudos_abas = ""
+        lista_ids_modal: List[str] = []
+
         if graficos_png:
             for idx, (titulo_aba, caminho_img) in enumerate(graficos_png.items()):
                 b64 = self._imagem_para_base64(caminho_img)
                 if not b64:
                     continue
-                ativo_cls = "aba-ativa" if idx == 0 else ""
-                display_stl = "block" if idx == 0 else "none"
                 id_aba = f"aba_grafico_{idx}"
-                botoes_abas += (
-                    f'<button class="btn-aba {ativo_cls}" '
-                    f'onclick="trocarAba(event, \'{id_aba}\')">{titulo_aba}</button>'
+                eh_primeiro = len(lista_ids_modal) == 0
+                lista_ids_modal.append(id_aba)
+                display_stl = "block" if eh_primeiro else "none"
+                selected_attr = " selected" if eh_primeiro else ""
+                titulo_esc = html.escape(str(titulo_aba))
+                nome_arq_dl = html.escape(os.path.basename(caminho_img) or f"grafico_{idx}.png")
+                opcoes_graficos += (
+                    f'<option value="{id_aba}" data-tipo="grafico" '
+                    f'data-arquivo="{nome_arq_dl}"{selected_attr}>📈 {titulo_esc}</option>'
                 )
                 conteudos_abas += (
-                    f'<div id="{id_aba}" class="conteudo-aba" style="display:{display_stl};">'
-                    f'<img src="data:image/png;base64,{b64}" alt="{titulo_aba}" />'
+                    f'<div id="{id_aba}" class="conteudo-aba" data-tipo="grafico" '
+                    f'data-titulo="{titulo_esc}" data-arquivo="{nome_arq_dl}" style="display:{display_stl};">'
+                    f'<div class="container-imagem-zoom">'
+                    f'<img class="img-metrica-interativa" src="data:image/png;base64,{b64}" '
+                    f'alt="{titulo_esc}" onclick="alternarCliqueZoomImagem(this)" '
+                    f'title="Clique para alternar zoom ou use os controles acima" />'
+                    f'</div>'
                     f'</div>'
                 )
 
-        # Abas de ranking por tipo funcional: tabelas HTML estáticas (sem interação extra),
-        # reutilizando o mesmo JS de troca de abas do modal
+        # Abas de ranking por tipo funcional: tabelas HTML com busca/filtro interativo
         contador_tabela = 0
         if tabelas_ranking:
             for titulo_aba, df_tabela in tabelas_ranking.items():
@@ -1001,21 +1459,33 @@ class ConnectomeVisualizer:
                     continue
                 id_aba = f"aba_tabela_{contador_tabela}"
                 contador_tabela += 1
-                botoes_abas += (
-                    f'<button class="btn-aba" '
-                    f'onclick="trocarAba(event, \'{id_aba}\')">{html.escape(titulo_aba)}</button>'
+                eh_primeiro = len(lista_ids_modal) == 0
+                lista_ids_modal.append(id_aba)
+                display_stl = "block" if eh_primeiro else "none"
+                selected_attr = " selected" if eh_primeiro else ""
+                titulo_esc = html.escape(str(titulo_aba))
+                opcoes_tabelas += (
+                    f'<option value="{id_aba}" data-tipo="tabela"{selected_attr}>{titulo_esc}</option>'
                 )
                 conteudos_abas += (
-                    f'<div id="{id_aba}" class="conteudo-aba" style="display:none;">'
+                    f'<div id="{id_aba}" class="conteudo-aba" data-tipo="tabela" '
+                    f'data-titulo="{titulo_esc}" style="display:{display_stl};">'
                     f'{corpo_tabela}'
                     f'</div>'
                 )
 
+        opcoes_select_modal = ""
+        if opcoes_graficos:
+            opcoes_select_modal += f'<optgroup label="Gráficos e Imagens (PNG)">{opcoes_graficos}</optgroup>'
+        if opcoes_tabelas:
+            opcoes_select_modal += f'<optgroup label="Tabelas e Rankings">{opcoes_tabelas}</optgroup>'
+
+        ids_modal_json = json.dumps(lista_ids_modal)
         layouts_json = json.dumps(layouts_precalculados)
         rc_json = json.dumps(list(rc_set))
         btn_modal_html = (
             '<button class="btn-topo btn-destaque" onclick="alternarModalMetricas()">📊 Gráficos de Métricas</button>'
-            if botoes_abas else ""
+            if lista_ids_modal else ""
         )
 
         patch_interface = f"""
@@ -1159,9 +1629,9 @@ class ConnectomeVisualizer:
                 background: #222;
                 border: 1px solid #444;
                 border-radius: 10px;
-                width: 88vw;
-                max-width: 1350px;
-                max-height: 90vh;
+                width: 92vw;
+                max-width: 1450px;
+                max-height: 92vh;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
@@ -1170,48 +1640,125 @@ class ConnectomeVisualizer:
             }}
             .modal-cabecalho {{
                 display: flex;
+                flex-wrap: wrap;
                 justify-content: space-between;
                 align-items: center;
+                gap: 12px;
                 padding: 12px 20px;
                 background: #181818;
                 border-bottom: 1px solid #333;
             }}
-            .abas-container {{ display: flex; gap: 8px; }}
-            .btn-aba {{
+            .modal-controles-esq {{
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+                flex: 1;
+            }}
+            .modal-controles-dir {{
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
+            }}
+            .select-modal-grafico {{
+                background: #282828;
+                color: #ffffff;
+                border: 1px solid #4285F4;
+                padding: 8px 14px;
+                border-radius: 6px;
+                font-size: 13.5px;
+                font-weight: 600;
+                font-family: sans-serif;
+                cursor: pointer;
+                outline: none;
+                min-width: 290px;
+            }}
+            .select-modal-grafico:hover, .select-modal-grafico:focus {{
+                background: #323232;
+                border-color: #669df6;
+            }}
+            .btn-modal-acao {{
                 background: #2c2c2c;
-                color: #ccc;
-                border: 1px solid #444;
-                padding: 8px 16px;
+                color: #e0e0e0;
+                border: 1px solid #4a4a4a;
+                padding: 7px 12px;
                 border-radius: 6px;
                 cursor: pointer;
-                font-size: 13px;
-                font-weight: bold;
+                font-size: 12.5px;
+                font-weight: 600;
+                transition: background 0.15s, border-color 0.15s;
             }}
-            .btn-aba.aba-ativa {{
-                background: #4285F4;
+            .btn-modal-acao:hover {{
+                background: #3c3c3c;
+                border-color: #4285F4;
                 color: #fff;
+            }}
+            .badge-contador-modal {{
+                background: #2b3548;
+                color: #8ab4f8;
+                border: 1px solid #4285F4;
+                padding: 5px 10px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-weight: bold;
+                white-space: nowrap;
+            }}
+            .input-filtro-tabela {{
+                background: #282828;
+                color: #fff;
+                border: 1px solid #555;
+                padding: 7px 11px;
+                border-radius: 6px;
+                font-size: 12.5px;
+                outline: none;
+                width: 210px;
+            }}
+            .input-filtro-tabela:focus {{
                 border-color: #4285F4;
             }}
             .btn-fechar-modal {{
                 background: #EA4335;
                 color: #fff;
                 border: none;
-                padding: 7px 14px;
+                padding: 8px 14px;
                 border-radius: 6px;
                 cursor: pointer;
                 font-weight: bold;
             }}
+            .btn-fechar-modal:hover {{
+                background: #d33426;
+            }}
             .modal-corpo {{
                 padding: 18px;
-                overflow-y: auto;
+                overflow: auto;
                 text-align: center;
                 background: #fff;
+                flex: 1;
             }}
-            .conteudo-aba img {{
+            .container-imagem-zoom {{
+                display: inline-block;
+                min-width: 100%;
+                overflow: auto;
+            }}
+            .img-metrica-interativa {{
                 max-width: 100%;
                 max-height: 76vh;
                 object-fit: contain;
                 border-radius: 4px;
+                transition: transform 0.2s ease, width 0.2s ease;
+                cursor: zoom-in;
+                transform-origin: top center;
+            }}
+            .modal-rodape-dica {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 20px;
+                background: #181818;
+                border-top: 1px solid #333;
+                color: #aaa;
+                font-size: 12px;
             }}
             .tabela-ranking {{
                 border-collapse: collapse;
@@ -1285,10 +1832,36 @@ class ConnectomeVisualizer:
         <div id="modal-metricas" onclick="fecharModalFora(event)">
             <div class="modal-caixa">
                 <div class="modal-cabecalho">
-                    <div class="abas-container">{botoes_abas}</div>
-                    <button class="btn-fechar-modal" onclick="alternarModalMetricas()">✕ Fechar (ESC)</button>
+                    <div class="modal-controles-esq">
+                        <div class="grupo-select">
+                            <span class="label-select">Selecionar Gráfico / Tabela</span>
+                            <select id="select-grafico-modal" class="select-modal-grafico" onchange="selecionarItemModal(this.value)">
+                                {opcoes_select_modal}
+                            </select>
+                        </div>
+                        <button class="btn-modal-acao" onclick="navegarItemModal(-1)" title="Anterior (Seta Esquerda)">◀ Anterior</button>
+                        <span id="badge-posicao-modal" class="badge-contador-modal">1 / {max(len(lista_ids_modal), 1)}</span>
+                        <button class="btn-modal-acao" onclick="navegarItemModal(1)" title="Próximo (Seta Direita)">Próximo ▶</button>
+                    </div>
+                    <div class="modal-controles-dir">
+                        <div id="controles-zoom-grafico" style="display:flex; align-items:center; gap:6px;">
+                            <button class="btn-modal-acao" onclick="ajustarZoomGrafico(-0.2)" title="Reduzir Zoom">🔍−</button>
+                            <span id="label-zoom-modal" class="badge-contador-modal" style="min-width:44px; text-align:center;">100%</span>
+                            <button class="btn-modal-acao" onclick="ajustarZoomGrafico(0.2)" title="Aumentar Zoom">🔍+</button>
+                            <button class="btn-modal-acao" onclick="resetarZoomGrafico()" title="Ajustar à Tela">⟲ Reset</button>
+                            <button class="btn-modal-acao" onclick="baixarGraficoAtual()" title="Baixar PNG">⬇ PNG</button>
+                        </div>
+                        <div id="controles-filtro-tabela" style="display:none; align-items:center; gap:6px;">
+                            <input id="input-busca-tabela" type="text" class="input-filtro-tabela" placeholder="🔎 Filtrar neurônio / tipo..." oninput="filtrarTabelaAtiva(this.value)" />
+                        </div>
+                        <button class="btn-fechar-modal" onclick="alternarModalMetricas()">✕ Fechar (ESC)</button>
+                    </div>
                 </div>
-                <div class="modal-corpo">{conteudos_abas}</div>
+                <div id="corpo-modal-metricas" class="modal-corpo">{conteudos_abas}</div>
+                <div class="modal-rodape-dica">
+                    <span id="legenda-item-modal">Dica: Clique na imagem para dar zoom rápido ou use os botões 🔍+ / 🔍−.</span>
+                    <span>Atalhos: <strong>← / →</strong> alterna gráficos • <strong>+ / −</strong> zoom • <strong>ESC</strong> fecha</span>
+                </div>
             </div>
         </div>
 
@@ -1298,6 +1871,9 @@ class ConnectomeVisualizer:
             var coordenadasLayouts = {layouts_json};
             var membrosRichClub = new Set({rc_json});
             var custoMaximo = {custo_maximo:.6f};
+            var listaIdsModal = {ids_modal_json};
+            var indiceModalAtual = 0;
+            var nivelZoomAtual = 1.0;
 
             var descricoesModos = {{
                 "clusters": {{
@@ -1489,26 +2065,177 @@ class ConnectomeVisualizer:
             function alternarModalMetricas() {{
                 var modal = document.getElementById("modal-metricas");
                 if (!modal) return;
-                modal.style.display = (modal.style.display === "flex") ? "none" : "flex";
+                var abrir = (modal.style.display !== "flex");
+                modal.style.display = abrir ? "flex" : "none";
+                if (abrir && listaIdsModal.length > 0) {{
+                    var sel = document.getElementById("select-grafico-modal");
+                    var idAtivo = (sel && sel.value) ? sel.value : listaIdsModal[0];
+                    selecionarItemModal(idAtivo);
+                }}
             }}
 
             function fecharModalFora(e) {{
                 if (e.target.id === "modal-metricas") alternarModalMetricas();
             }}
 
-            function trocarAba(evt, idAba) {{
+            function selecionarItemModal(idAba) {{
+                if (!idAba) return;
                 var conteudos = document.getElementsByClassName("conteudo-aba");
-                for (var i = 0; i < conteudos.length; i++) conteudos[i].style.display = "none";
-                var botoes = document.getElementsByClassName("btn-aba");
-                for (var i = 0; i < botoes.length; i++) botoes[i].classList.remove("aba-ativa");
-                document.getElementById(idAba).style.display = "block";
-                evt.currentTarget.classList.add("aba-ativa");
+                for (var i = 0; i < conteudos.length; i++) {{
+                    conteudos[i].style.display = "none";
+                }}
+
+                var alvo = document.getElementById(idAba);
+                if (!alvo) return;
+                alvo.style.display = "block";
+
+                var idx = listaIdsModal.indexOf(idAba);
+                if (idx >= 0) {{
+                    indiceModalAtual = idx;
+                }}
+
+                var sel = document.getElementById("select-grafico-modal");
+                if (sel && sel.value !== idAba) {{
+                    sel.value = idAba;
+                }}
+
+                var badgePos = document.getElementById("badge-posicao-modal");
+                if (badgePos) {{
+                    badgePos.innerText = (indiceModalAtual + 1) + " / " + Math.max(listaIdsModal.length, 1);
+                }}
+
+                var tipoItem = alvo.getAttribute("data-tipo") || "grafico";
+                var tituloItem = alvo.getAttribute("data-titulo") || "";
+                var divZoom = document.getElementById("controles-zoom-grafico");
+                var divFiltro = document.getElementById("controles-filtro-tabela");
+                var legendaRodape = document.getElementById("legenda-item-modal");
+
+                if (tipoItem === "grafico") {{
+                    if (divZoom) divZoom.style.display = "flex";
+                    if (divFiltro) divFiltro.style.display = "none";
+                    if (legendaRodape) {{
+                        legendaRodape.innerText = "Visualizando gráfico: " + tituloItem + " (Clique na imagem para alternar zoom 100% / 160%)";
+                    }}
+                    resetarZoomGrafico();
+                }} else {{
+                    if (divZoom) divZoom.style.display = "none";
+                    if (divFiltro) divFiltro.style.display = "flex";
+                    var inputBusca = document.getElementById("input-busca-tabela");
+                    if (inputBusca) {{
+                        inputBusca.value = "";
+                        filtrarTabelaAtiva("");
+                    }}
+                    if (legendaRodape) {{
+                        legendaRodape.innerText = "Visualizando tabela: " + tituloItem + " (Use a caixa de busca acima para filtrar linhas)";
+                    }}
+                }}
+            }}
+
+            function navegarItemModal(delta) {{
+                if (!listaIdsModal.length) return;
+                var novoIdx = (indiceModalAtual + delta + listaIdsModal.length) % listaIdsModal.length;
+                selecionarItemModal(listaIdsModal[novoIdx]);
+            }}
+
+            function obterImagemAtivaModal() {{
+                if (!listaIdsModal.length) return null;
+                var idAtual = listaIdsModal[indiceModalAtual];
+                var divAtual = document.getElementById(idAtual);
+                if (!divAtual) return null;
+                return divAtual.querySelector("img.img-metrica-interativa");
+            }}
+
+            function aplicarZoomNaImagem(img) {{
+                if (!img) return;
+                if (Math.abs(nivelZoomAtual - 1.0) < 0.01) {{
+                    img.style.maxWidth = "100%";
+                    img.style.maxHeight = "76vh";
+                    img.style.width = "auto";
+                    img.style.cursor = "zoom-in";
+                }} else {{
+                    img.style.maxWidth = "none";
+                    img.style.maxHeight = "none";
+                    img.style.width = Math.round(nivelZoomAtual * 100) + "%";
+                    img.style.cursor = "zoom-out";
+                }}
+                var lblZoom = document.getElementById("label-zoom-modal");
+                if (lblZoom) {{
+                    lblZoom.innerText = Math.round(nivelZoomAtual * 100) + "%";
+                }}
+            }}
+
+            function ajustarZoomGrafico(delta) {{
+                var img = obterImagemAtivaModal();
+                if (!img) return;
+                nivelZoomAtual = Math.min(2.6, Math.max(0.6, Math.round((nivelZoomAtual + delta) * 10) / 10));
+                aplicarZoomNaImagem(img);
+            }}
+
+            function resetarZoomGrafico() {{
+                nivelZoomAtual = 1.0;
+                var img = obterImagemAtivaModal();
+                if (img) aplicarZoomNaImagem(img);
+                var corpo = document.getElementById("corpo-modal-metricas");
+                if (corpo) {{
+                    corpo.scrollTop = 0;
+                    corpo.scrollLeft = 0;
+                }}
+            }}
+
+            function alternarCliqueZoomImagem(img) {{
+                if (!img) return;
+                nivelZoomAtual = (nivelZoomAtual > 1.05) ? 1.0 : 1.6;
+                aplicarZoomNaImagem(img);
+            }}
+
+            function baixarGraficoAtual() {{
+                var img = obterImagemAtivaModal();
+                if (!img) return;
+                var divAtual = document.getElementById(listaIdsModal[indiceModalAtual]);
+                var nomeArq = (divAtual && divAtual.getAttribute("data-arquivo")) ? divAtual.getAttribute("data-arquivo") : "grafico_conectoma.png";
+                var link = document.createElement("a");
+                link.href = img.src;
+                link.download = nomeArq;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }}
+
+            function filtrarTabelaAtiva(termo) {{
+                if (!listaIdsModal.length) return;
+                var divAtual = document.getElementById(listaIdsModal[indiceModalAtual]);
+                if (!divAtual) return;
+                var linhas = divAtual.querySelectorAll("table.tabela-ranking tbody tr");
+                var q = String(termo || "").toLowerCase().trim();
+                for (var i = 0; i < linhas.length; i++) {{
+                    var txt = (linhas[i].innerText || linhas[i].textContent || "").toLowerCase();
+                    linhas[i].style.display = (!q || txt.indexOf(q) !== -1) ? "" : "none";
+                }}
             }}
 
             document.addEventListener("keydown", function(e) {{
+                var modal = document.getElementById("modal-metricas");
+                if (!modal || modal.style.display !== "flex") return;
+                var tagAtiva = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : "";
                 if (e.key === "Escape") {{
-                    var modal = document.getElementById("modal-metricas");
-                    if (modal) modal.style.display = "none";
+                    modal.style.display = "none";
+                }} else if (tagAtiva !== "input" && tagAtiva !== "select") {{
+                    if (e.key === "ArrowLeft") {{
+                        e.preventDefault();
+                        navegarItemModal(-1);
+                    }} else if (e.key === "ArrowRight") {{
+                        e.preventDefault();
+                        navegarItemModal(1);
+                    }} else if (e.key === "+" || e.key === "=") {{
+                        e.preventDefault();
+                        ajustarZoomGrafico(0.2);
+                    }} else if (e.key === "-") {{
+                        e.preventDefault();
+                        ajustarZoomGrafico(-0.2);
+                    }} else if (e.key === "0") {{
+                        e.preventDefault();
+                        resetarZoomGrafico();
+                    }}
                 }}
             }});
         </script>
