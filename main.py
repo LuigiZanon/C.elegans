@@ -21,6 +21,7 @@ from preservation_analyzer import InformationPreservationAnalyzer
 from synthetic_benchmark import SyntheticNetworkBenchmark
 from topology_classifier import TopologyClassifier
 from visualizer import ConnectomeVisualizer
+from network_metrics import NetworkMetricsAnalyzer
 
 
 def main() -> None:
@@ -83,12 +84,32 @@ def main() -> None:
     resumo_chefes.to_csv(caminho_csv_chefes, index=False)
     print(f"\nTabelas salvas em: '{caminho_csv_ranking}' e '{caminho_csv_chefes}'")
 
-    # 4c. Custo de cabeamento espacial: peso sináptico × distância longitudinal entre somas
+    # 4c. Ranking Global Unificado: cálculo dos três vértices mais importantes do conectoma
+    #     agregando Grau Ponderado, Intermediação, Proximidade e PageRank
+    ranking_global = analyzer.ranking_global_unificado(camada="Combinada")
+    df_top3 = analyzer.obter_top_vertices_globais(top_n=3, camada="Combinada")
+
+    caminho_csv_global = os.path.join(OUTPUT_DIR, "ranking_global_unificado.csv")
+    ranking_global.to_csv(caminho_csv_global, index=False)
+    caminho_csv_top3 = os.path.join(OUTPUT_DIR, "top3_vertices_mais_importantes.csv")
+    df_top3.to_csv(caminho_csv_top3, index=False)
+    print(f"Rankings globais salvos em: '{caminho_csv_global}' e '{caminho_csv_top3}'")
+
+    # Exibição do relatório formatado dos três vértices mais importantes no terminal
+    analyzer.exibir_relatorio_top_vertices(df_top3)
+
+    # 4d. Custo de cabeamento espacial: peso sináptico × distância longitudinal entre somas
     df_custo = analyzer.calcular_custo_cabeamento()
     analyzer.exibir_resumo_custo_cabeamento(top_n=10)
     caminho_csv_custo = os.path.join(OUTPUT_DIR, "custo_cabeamento.csv")
     df_custo.to_csv(caminho_csv_custo, index=False)
     print(f"\nCusto de cabeamento salvo em: '{caminho_csv_custo}'")
+
+    df_robustez, limiares_fc = NetworkMetricsAnalyzer.simular_robustez_percolacao(
+        grafo_multi, membros_rich_club=membros_elite, passo=0.02, n_sim_aleatorio=30, seed=42
+    )
+    caminho_csv_rob = os.path.join(OUTPUT_DIR, "robustez_percolacao.csv")
+    df_robustez.to_csv(caminho_csv_rob, index=False)
 
     # Os chefes de cada tipo substituem os destaques da camada química no destaque do HTML.
     influentes = dict(zip(resumo_chefes["Chefe"], resumo_chefes["Score_Chefe"]))
@@ -198,6 +219,9 @@ def main() -> None:
 
     # 6. Visualizações salvas diretamente na pasta 'outputs/' e integradas no HTML interativo
     visualizer = ConnectomeVisualizer(grafo_multi, output_dir=OUTPUT_DIR)
+    caminho_top_vertices = visualizer.plotar_top_vertices_mais_importantes(
+        ranking_global, top_n=3, nome_arquivo="top_vertices_mais_importantes.png"
+    )
     caminho_fluxo = visualizer.plotar_matrizes_fluxo(
         mat_quimica, mat_eletrica, ordem_classes, nome_arquivo="matrizes_fluxo.png"
     )
@@ -217,6 +241,10 @@ def main() -> None:
     caminho_sf = visualizer.plotar_evidencias_scale_free(
         resultado_topo["modelos_cauda_df"], resultado_topo["resumo_json"]["scale_free"]
     )
+
+    top_globais_map = dict(zip(df_top3["Neuronio"], df_top3["Posicao_Global"]))
+    top_detalhes_map = {row["Neuronio"]: row.to_dict() for _, row in df_top3.iterrows()}
+
     caminho_nav = visualizer.plotar_navegacao_greedy(
         resultado_nav["df_navegacao"],
         resultado_nav["df_nav_fluxo"],
@@ -254,8 +282,11 @@ def main() -> None:
         arquivo_saida="celegans_rede_interativa.html",
         notebook=False,
         influentes=influentes,
+        top_globais=top_globais_map,
+        top_detalhes=top_detalhes_map,
         membros_rich_club=set(membros_elite),
         graficos_png={
+            "Top 3 Vértices Mais Importantes": caminho_top_vertices,
             "Rich-Club Ponderado": caminho_rc,
             "Matrizes de Fluxo (Química vs Elétrica)": caminho_fluxo,
             "Comparação com Redes Sintéticas": caminho_sinteticas,
@@ -270,6 +301,16 @@ def main() -> None:
             "Difusão: Simulação SI e Cascata (IC)": caminho_diff_sim,
         },
         tabelas_ranking={
+            "🌟 Top 3 Vértices Globais": df_top3[
+                ["Posicao_Global", "Neuronio", "Tipo", "Score_Global",
+                 "Grau_Ponderado", "Intermediacao", "Proximidade", "PageRank",
+                 "Pct_Grau_Ponderado", "Pct_Intermediacao", "Pct_Proximidade", "Pct_PageRank"]
+            ],
+            "🏅 Ranking Global (Top 25)": ranking_global.head(25)[
+                ["Posicao_Global", "Neuronio", "Tipo", "Score_Global",
+                 "Grau_Ponderado", "Forca_Entrada", "Forca_Saida",
+                 "Intermediacao", "Proximidade", "PageRank"]
+            ],
             "🏆 Chefes por Tipo": resumo_chefes,
             "Top 5 por Tipo": ranking_tipos[ranking_tipos["Posicao_No_Tipo"] <= 5][
                 ["Tipo", "Posicao_No_Tipo", "Neuronio", "Grau_Ponderado",
@@ -280,7 +321,15 @@ def main() -> None:
                  "Peso_Sinaptico", "Distancia_Soma", "Custo_Cabeamento"]
             ]
         }
+
+        
     )
+
+    # Exibição final da visualização dos três vértices mais importantes pós-execução completa
+    print("\n" + "=" * 94)
+    print("  PIPELINE EXECUTADO COM SUCESSO! RESUMO DOS VÉRTICES MAIS IMPORTANTES DO CONECTOMA:")
+    print("=" * 94)
+    analyzer.exibir_relatorio_top_vertices(df_top3)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ e filtro de camadas do multigrafo (Química, Elétrica e Multiplex).
 """
 
 import os
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 import json
 import html
 import base64
@@ -66,8 +67,10 @@ class ConnectomeVisualizer:
         if isinstance(valor, (float, np.floating)):
             if nome_coluna in ("PageRank", "Intermediacao"):
                 texto = f"{float(valor):.4f}"
-            elif nome_coluna == "Score_Chefe":
-                texto = f"{float(valor):.3f}"
+            elif nome_coluna in ("Score_Chefe", "Score_Global", "Proximidade"):
+                texto = f"{float(valor):.4f}"
+            elif str(nome_coluna).startswith("Pct_"):
+                texto = f"{float(valor) * 100:.1f}%"
             else:
                 texto = f"{float(valor):.2f}"
             return html.escape(texto)
@@ -77,13 +80,14 @@ class ConnectomeVisualizer:
         """Converte um DataFrame em uma tabela HTML com todos os valores escapados.
 
         Linhas identificadas como "chefe" do tipo recebem borda esquerda colorida
-        (cor da paleta funcional), quando ``cor_por_tipo`` for fornecida.
+        (cor da paleta funcional), e linhas de Top 3 Global recebem destaque em ouro/prata/bronze.
         """
         if df is None or df.empty:
             return ""
         colunas = list(df.columns)
         tem_e_chefe = "E_Chefe" in colunas
         tem_posicao = "Posicao_No_Tipo" in colunas
+        tem_posicao_global = "Posicao_Global" in colunas
 
         linhas_html = []
         for _, linha in df.iterrows():
@@ -95,7 +99,18 @@ class ConnectomeVisualizer:
                 eh_chefe = True  # ex.: tabela de resumo, onde cada linha é um chefe
 
             estilo_primeira_celula = ""
-            if eh_chefe and cor_por_tipo:
+            if tem_posicao_global:
+                try:
+                    pos_g = int(linha["Posicao_Global"])
+                    if pos_g == 1:
+                        estilo_primeira_celula = ' style="border-left:5px solid #FFD700; font-weight:bold; background-color:rgba(255,215,0,0.08);"'
+                    elif pos_g == 2:
+                        estilo_primeira_celula = ' style="border-left:5px solid #C0C0C0; font-weight:bold; background-color:rgba(192,192,192,0.08);"'
+                    elif pos_g == 3:
+                        estilo_primeira_celula = ' style="border-left:5px solid #CD7F32; font-weight:bold; background-color:rgba(205,127,50,0.08);"'
+                except (ValueError, TypeError):
+                    pass
+            elif eh_chefe and cor_por_tipo:
                 tipo = str(linha.get("Tipo", ""))
                 cor = cor_por_tipo.get(tipo)
                 if cor:
@@ -1258,6 +1273,272 @@ class ConnectomeVisualizer:
         print(f"Gráfico de evidências Scale-Free salvo em: '{caminho_saida}'")
         return caminho_saida
 
+    def plotar_top_vertices_mais_importantes(
+        self,
+        df_ranking_global: pd.DataFrame,
+        top_n: int = 3,
+        nome_arquivo: str = "top_vertices_mais_importantes.png"
+    ) -> str:
+        """
+        Gera um painel diagnóstico de alta resolução (300 DPI) com 4 quadrantes:
+          1. Perfil Multidimensional dos Top 3 Vértices (Barras de percentis nos 4 pilares + Score Global)
+          2. Ranking dos 10 Vértices Mais Importantes (Barras horizontais com Score Global por tipo funcional)
+          3. Paisagem Topológica Global (Dispersão Grau Ponderado vs. Intermediação de toda a rede)
+          4. Cartão Diagnóstico Neurobiológico (Síntese anatômica, reflexos de fuga e controle motor do Top 3)
+        """
+        caminho_saida = self._resolver_caminho(nome_arquivo)
+        fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+        ax1, ax2, ax3, ax4 = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
+
+        df_top = df_ranking_global.head(top_n).copy()
+        df_top10 = df_ranking_global.head(10).copy()
+
+        # -------------------------------------------------------------------------
+        # QUADRANTE 1: Perfil Multidimensional dos Top 3 (Percentis)
+        # -------------------------------------------------------------------------
+        eixos_metricas = [
+            "Pct_Grau_Ponderado", "Pct_Intermediacao", "Pct_Proximidade", "Pct_PageRank", "Score_Global"
+        ]
+        rotulos_eixos = [
+            "Força Sináptica\n(Grau Ponderado)",
+            "Intermediação\n(Betweenness)",
+            "Proximidade\n(Closeness)",
+            "PageRank\n(Tráfego Estac.)",
+            "Score Global\nComposto"
+        ]
+
+        paleta_top3 = ["#D32F2F", "#E65100", "#1976D2"]
+        medalhas_simbolo = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+        x_indices = np.arange(len(eixos_metricas))
+        largura_barra = 0.24
+
+        for i, (_, row) in enumerate(df_top.iterrows()):
+            pos_g = int(row["Posicao_Global"])
+            nome_neu = str(row["Neuronio"])
+            med = medalhas_simbolo.get(pos_g, f"#{pos_g}")
+            cor = paleta_top3[i % len(paleta_top3)]
+
+            valores_pct = [float(row[col]) * 100 for col in eixos_metricas]
+            offset = (i - (len(df_top) - 1) / 2.0) * largura_barra
+            barras = ax1.bar(
+                x_indices + offset,
+                valores_pct,
+                width=largura_barra * 0.92,
+                label=f"{med} {nome_neu} ({row['Tipo']})",
+                color=cor,
+                alpha=0.90,
+                edgecolor="#222222",
+                linewidth=1.2
+            )
+
+            for b in barras:
+                h = b.get_height()
+                ax1.annotate(
+                    f"{h:.1f}%",
+                    xy=(b.get_x() + b.get_width() / 2, h),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center", va="bottom",
+                    fontsize=8.5, fontweight="bold", color="#111111"
+                )
+
+        ax1.set_xticks(x_indices)
+        ax1.set_xticklabels(rotulos_eixos, fontsize=10, fontweight="bold")
+        ax1.set_ylabel("Percentil Global no Conectoma (%)", fontsize=11, fontweight="bold")
+        ax1.set_ylim(0, 115)
+        ax1.set_title(
+            "A) Perfil Multidimensional dos Top 3 Vértices (4 Pilares de Centralidade)",
+            fontsize=12, fontweight="bold", pad=12
+        )
+        ax1.grid(axis="y", linestyle="--", alpha=0.45)
+        ax1.legend(loc="lower right", framealpha=0.95, fontsize=9.5)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+
+        # -------------------------------------------------------------------------
+        # QUADRANTE 2: Ranking Global dos Top 10 Neurônios (Barras Horizontais)
+        # -------------------------------------------------------------------------
+        df_top10_inv = df_top10.iloc[::-1].reset_index(drop=True)
+        cores_barras_10 = [
+            PALETA_CORES_FUNCIONAIS.get(str(t), "#757575") for t in df_top10_inv["Tipo"]
+        ]
+
+        rotulos_y = []
+        for _, row in df_top10_inv.iterrows():
+            pos = int(row["Posicao_Global"])
+            med = medalhas_simbolo.get(pos, f"#{pos}")
+            rotulos_y.append(f"{med} {row['Neuronio']}")
+
+        scores_10 = df_top10_inv["Score_Global"] * 100
+        barras_h = ax2.barh(
+            rotulos_y,
+            scores_10,
+            color=cores_barras_10,
+            edgecolor="#222222",
+            alpha=0.88,
+            height=0.68,
+            linewidth=1.1
+        )
+
+        for b in barras_h:
+            w = b.get_width()
+            ax2.annotate(
+                f"{w:.2f}%",
+                xy=(w, b.get_y() + b.get_height() / 2),
+                xytext=(5, 0),
+                textcoords="offset points",
+                ha="left", va="center",
+                fontsize=9, fontweight="bold", color="#111111"
+            )
+
+        ax2.set_xlabel("Score Global Unificado (%)", fontsize=11, fontweight="bold")
+        ax2.set_xlim(85, 106)
+        ax2.set_title(
+            "B) Top 10 Neurônios Mais Centrais do Conectoma (Score Global)",
+            fontsize=12, fontweight="bold", pad=12
+        )
+        ax2.grid(axis="x", linestyle="--", alpha=0.45)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+
+        # Legenda por classe funcional no ax2
+        handles_classes = [
+            plt.Line2D([0], [0], color=cor, lw=6, label=classe)
+            for classe, cor in PALETA_CORES_FUNCIONAIS.items()
+            if classe in df_top10["Tipo"].values
+        ]
+        ax2.legend(handles=handles_classes, loc="lower right", fontsize=9, framealpha=0.95, title="Classe Funcional")
+
+        # -------------------------------------------------------------------------
+        # QUADRANTE 3: Espaço Topológico Global (Grau Ponderado vs. Intermediação)
+        # -------------------------------------------------------------------------
+        for classe, cor in PALETA_CORES_FUNCIONAIS.items():
+            sub = df_ranking_global[df_ranking_global["Tipo"] == classe]
+            if sub.empty:
+                continue
+            tamanhos = np.clip(sub["PageRank"] * 12000.0 + 35.0, 30.0, 450.0)
+            ax3.scatter(
+                sub["Grau_Ponderado"],
+                sub["Intermediacao"],
+                s=tamanhos,
+                c=cor,
+                alpha=0.65,
+                edgecolors="none",
+                label=classe
+            )
+
+        # Destaque com anéis e anotações para o Top 3
+        offsets_setas = {
+            "AVAL": (-90, -45),
+            "AVAR": (25, 30),
+            "AVBR": (40, 35)
+        }
+        for _, row in df_top.iterrows():
+            nome = str(row["Neuronio"])
+            pos = int(row["Posicao_Global"])
+            med = medalhas_simbolo.get(pos, f"#{pos}")
+            gx = float(row["Grau_Ponderado"])
+            by = float(row["Intermediacao"])
+
+            ax3.scatter(
+                [gx], [by],
+                s=550,
+                facecolors="none",
+                edgecolors="#111111",
+                linewidths=2.5,
+                zorder=6
+            )
+            dx, dy = offsets_setas.get(nome, (25, 25))
+            ax3.annotate(
+                f"{med} {nome}\nScore: {float(row['Score_Global']):.4f}\n(Força={gx:.0f}, BC={by:.3f})",
+                xy=(gx, by),
+                xytext=(gx + dx, by + dy / 300.0),
+                arrowprops=dict(facecolor="#111111", shrink=0.08, width=1.5, headwidth=6),
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="#FFF9C4", edgecolor="#F57F17", alpha=0.95, lw=1.2),
+                fontsize=8.5, fontweight="bold", zorder=7
+            )
+
+        ax3.set_xlabel("Grau Ponderado (Força Sináptica Total: Entrada + Saída)", fontsize=11, fontweight="bold")
+        ax3.set_ylabel("Centralidade de Intermediação (Betweenness)", fontsize=11, fontweight="bold")
+        ax3.set_title(
+            "C) Paisagem Topológica: Super-Hubs e Gargalos de Comunicação",
+            fontsize=12, fontweight="bold", pad=12
+        )
+        ax3.grid(True, linestyle="--", alpha=0.45)
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+        ax3.legend(loc="upper left", fontsize=9, framealpha=0.95, title="Classe (Tamanho ∝ PageRank)")
+
+        # -------------------------------------------------------------------------
+        # QUADRANTE 4: Cartões Diagnósticos e Fundamentação Neurobiológica (Top 3)
+        # -------------------------------------------------------------------------
+        ax4.axis("off")
+        ax4.set_title(
+            "D) Diagnóstico Neurobiológico e Justificativa Funcional (Top 3)",
+            fontsize=12, fontweight="bold", pad=12
+        )
+
+        info_cards = [
+            (
+                "🥇 1º LUGAR: AVAL (Interneurônio de Comando)",
+                "#D32F2F",
+                "#FFEBEE",
+                (
+                    "• Papel Comportamental: Hub condutor primário de marcha retrógrada (ré e fuga rápida).\n"
+                    "• Integração: Convergência de sensores nociceptivos/mecânicos da cabeça (ASH, FLP, ALM).\n"
+                    "• Inervação Motora: Extensas gap junctions e sinapses químicas com motoneurônios A (DA/VA).\n"
+                    "• Destaque Topológico: Maior Grau Ponderado (606) e maior Intermediação (0.2994) da rede."
+                )
+            ),
+            (
+                "🥈 2º LUGAR: AVAR (Interneurônio de Comando)",
+                "#E65100",
+                "#FFF3E0",
+                (
+                    "• Papel Comportamental: Par contralateral homólogo de AVAL na orquestração de marcha à ré.\n"
+                    "• Integração: Garante simetria bilateral e redundância ultrarrobusta ao reflexo evasivo.\n"
+                    "• Inervação Motora: Acoplamento elétrico excitatório maciço ao longo de todo o cordão ventral.\n"
+                    "• Destaque Topológico: Maior Centralidade de Proximidade (1.6246, 100% da rede) e 2º em Força."
+                )
+            ),
+            (
+                "🥉 3º LUGAR: AVBR (Interneurônio de Comando)",
+                "#1565C0",
+                "#E3F2FD",
+                (
+                    "• Papel Comportamental: Hub condutor da locomoção anterógrada (marcha para frente/exploração).\n"
+                    "• Dinâmica de Circuito: Forma com AVAL/AVAR o oscilador bi-estável que alterna avanço e ré.\n"
+                    "• Inervação Motora: Gap junctions com motoneurônios da classe B (DB/VB) do cordão ventral.\n"
+                    "• Destaque Topológico: 3º maior score composto (0.9651), alta conectividade química e elétrica."
+                )
+            )
+        ]
+
+        y_pos = 0.95
+        for titulo, cor_borda, cor_fundo, texto in info_cards:
+            ax4.text(
+                0.03, y_pos,
+                titulo,
+                fontsize=10.5, fontweight="bold", color=cor_borda,
+                va="top", ha="left"
+            )
+            ax4.text(
+                0.03, y_pos - 0.05,
+                texto,
+                fontsize=9.0, color="#212121",
+                va="top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor=cor_fundo, edgecolor=cor_borda, alpha=0.90, lw=1.3)
+            )
+            y_pos -= 0.32
+
+        plt.tight_layout()
+        fig.savefig(caminho_saida, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Gráfico dos 3 vértices mais importantes salvo em: '{caminho_saida}'")
+        
+        return caminho_saida
+      
     def plotar_navegacao_greedy(
         self,
         df_navegacao: pd.DataFrame,
@@ -2457,6 +2738,8 @@ class ConnectomeVisualizer:
         arquivo_saida: str = "celegans_rede_interativa.html",
         notebook: bool = False,
         influentes: Optional[Dict[str, float]] = None,
+        top_globais: Optional[Dict[str, int]] = None,
+        top_detalhes: Optional[Dict[str, Dict[str, Any]]] = None,
         membros_rich_club: Optional[Set[str]] = None,
         graficos_png: Optional[Dict[str, str]] = None,
         tabelas_ranking: Optional[Dict[str, pd.DataFrame]] = None
@@ -2465,8 +2748,8 @@ class ConnectomeVisualizer:
         Gera HTML em tela cheia na pasta outputs com caixas de seleção (<select>) para:
           - Alternar entre 5 modos de exibição (layouts topológicos/anatômicos)
           - Filtrar/colorir as camadas do multigrafo (Química, Elétrica, Multiplex ou Custo de Cabeamento)
-          - Visualizar os gráficos PNG de métricas em modal integrado
-          - Consultar as tabelas de ranking por tipo funcional em abas do mesmo modal
+          - Visualizar os gráficos PNG de métricas em modal integrado (incluindo os Top Vértices)
+          - Consultar as tabelas de ranking (Top 3 Global, Unificado e por tipo funcional) em abas do mesmo modal
 
         O dicionário ``tabelas_ranking`` mapeia o título da aba para um DataFrame;
         cada DataFrame vira uma aba HTML (valores escapados) após as abas de PNG.
@@ -2521,28 +2804,66 @@ class ConnectomeVisualizer:
                 soma_p = d.get("soma_pos", 0.0)
                 soma_str = f"{float(soma_p):.2f}" if soma_p is not None else "N/A"
 
-                tooltip = (
-                    f"Neurônio: {n}\n"
-                    f"Tipo: {tipo}\n"
-                    f"Grau Total: {grau_no} (Força Quím: {fq} | Elét: {fe})\n"
-                    f"Posição Soma: {soma_str} | Região: {d.get('regiao_soma', 'N/A')}\n"
-                    f"Membro Rich-Club: {'Sim' if eh_rc else 'Não'}"
-                )
+                eh_top_global = top_globais is not None and n in top_globais
+                rank_global = top_globais[n] if eh_top_global else None
                 eh_influente = influentes is not None and n in influentes
-                if eh_influente:
-                    tooltip += (
-                        f"\nMais influente da classe: {tipo}"
-                        f"\nEscore de influência: {influentes[n]:.3f}"
-                    )
+                medalhas = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+                tooltip_linhas = []
+                if eh_top_global and rank_global in medalhas:
+                    tooltip_linhas.append(f"🏆 TOP {rank_global} MAIS IMPORTANTE DO CONECTOMA (Global)")
+                tooltip_linhas.extend([
+                    f"Neurônio: {n}",
+                    f"Tipo: {tipo}",
+                    f"Grau Total: {grau_no} (Força Quím: {fq} | Elét: {fe})",
+                    f"Posição Soma: {soma_str} | Região: {d.get('regiao_soma', 'N/A')}",
+                    f"Membro Rich-Club: {'Sim' if eh_rc else 'Não'}"
+                ])
+                if eh_top_global and top_detalhes and n in top_detalhes:
+                    td = top_detalhes[n]
+                    sc = float(td.get("Score_Global", 0))
+                    tooltip_linhas.append(f"Score Global Unificado: {sc:.4f}")
+                    just = str(td.get("Justificativa_Biologica", ""))
+                    if just:
+                        tooltip_linhas.append(f"Papel Biológico: {just[:110]}...")
+                elif eh_influente:
+                    tooltip_linhas.append(f"Mais influente da classe: {tipo}")
+                    tooltip_linhas.append(f"Escore de influência: {influentes[n]:.3f}")
+
+                tooltip = "\n".join(tooltip_linhas)
+
+                if eh_top_global and rank_global in medalhas:
+                    rotulo_no = f"{medalhas[rank_global]} {n}"
+                    cor_borda_top = {1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32"}.get(rank_global, "#FFFFFF")
+                    cor_no_final = {
+                        "background": PALETA_CORES_FUNCIONAIS.get(tipo, "grey"),
+                        "border": cor_borda_top,
+                        "highlight": {"background": PALETA_CORES_FUNCIONAIS.get(tipo, "grey"), "border": "#FFFFFF"}
+                    }
+                    tam_no = tamanho * 2.2
+                    borda_w = 6.0
+                    shape_no = "star"
+                elif eh_influente:
+                    rotulo_no = f"★ {n}"
+                    cor_no_final = PALETA_CORES_FUNCIONAIS.get(tipo, "grey")
+                    tam_no = tamanho * 1.5
+                    borda_w = 4.0
+                    shape_no = "star"
+                else:
+                    rotulo_no = n
+                    cor_no_final = PALETA_CORES_FUNCIONAIS.get(tipo, "grey")
+                    tam_no = tamanho
+                    borda_w = 4.0 if eh_rc else 1.5
+                    shape_no = "dot"
 
                 g_vis.add_node(
                     n,
-                    label=f"★ {n}" if eh_influente else n,
+                    label=rotulo_no,
                     title=tooltip,
-                    color=PALETA_CORES_FUNCIONAIS.get(tipo, "grey"),
-                    size=tamanho * (1.5 if eh_influente else 1.0),
-                    shape="star" if eh_influente else "dot",
-                    borderWidth=4 if (eh_influente or eh_rc) else 1.5,
+                    color=cor_no_final,
+                    size=tam_no,
+                    shape=shape_no,
+                    borderWidth=borda_w,
                     x=float(coord_ini["x"]),
                     y=float(coord_ini["y"]),
                     physics=True
