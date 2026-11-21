@@ -1,0 +1,12 @@
+{
+  "0": "ConnectomeAnalyzer",
+  "1": "main",
+  "2": "SyntheticNetworkBenchmark",
+  "3": "visualizer.py",
+  "4": ".calcular_coeficiente_agrupamento_local",
+  "5": "TopologyClassifier",
+  "6": "ConnectomeBuilder",
+  "7": "DiGraph",
+  "8": "Any",
+  "9": "ndarray"
+}

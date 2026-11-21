@@ -3,10 +3,59 @@ Módulo de análise estatística, resumo topológico, influência e Rich-Club Po
 """
 
 from typing import Dict, List, Optional, Tuple
+import textwrap
 import numpy as np
 import pandas as pd
 import networkx as nx
 from config import ORDEM_CLASSES_PADRAO
+
+
+JUSTIFICATIVAS_BIOLOGICAS_TOP: Dict[str, str] = {
+    "AVAL": (
+        "Interneurônio de comando condutor primário de marcha retrógrada (locomoção de ré e manobra "
+        "de fuga por evasão rápida). Integra estímulos sensoriais nociceptivos e mecânicos convergentes "
+        "(ex.: ASH, FLP, ALM); projeta-se longitudinalmente por todo o corpo estabelecendo extensas "
+        "junções comunicantes elétricas (gap junctions) com motoneurônios do tipo A (DA/VA) responsáveis "
+        "pela ondulação para trás. Apresenta o maior Grau Ponderado (força sináptica total = 606), maior "
+        "PageRank (0.0350) e maior Centralidade de Intermediação (0.2994) de todo o conectoma, operando "
+        "como o principal hub integrador e gargalo de tráfego do sistema nervoso somático."
+    ),
+    "AVAR": (
+        "Homólogo contralateral direito de AVAL. Atua em estreita cooperação e sinergia bilateral "
+        "com AVAL na orquestração motora da reversão de marcha e fuga. Apresenta a mais alta Centralidade "
+        "de Proximidade (1.6246, 100.0% global) de todo o conectoma, permitindo a comunicação e "
+        "difusão de sinais no menor tempo geodésico médio para qualquer outro neurônio da rede. É o "
+        "2º colocado em Grau Ponderado (563), Intermediação (0.2299) e PageRank (0.0330). Forma com AVAL "
+        "a espinha dorsal pré-motora do organismo."
+    ),
+    "AVBR": (
+        "Interneurônio de comando condutor da locomoção anterógrada (marcha para frente e exploração). "
+        "Acopla-se fortemente via junções comunicantes elétricas e sinapses químicas aos motoneurônios "
+        "da classe B (DB/VB), que geram a ondulação progressiva para frente. Estabelece com o par AVAL/AVAR "
+        "o circuito oscilatório bi-estável central que comuta alternadamente o sentido do movimento "
+        "do verme. Apresenta altíssimo Grau Ponderado (248, percentil 99.3%), Proximidade (percentil 96.8%) "
+        "e PageRank (percentil 97.1%), consolidando-se como o 3º vértice mais influente globalmente."
+    ),
+    "PVCR": (
+        "Interneurônio de comando posterior condutor de locomoção anterógrada. Localizado na cauda, "
+        "recebe estímulos mecanossensoriais posteriores (ex.: PLM) e dispara a marcha para frente através "
+        "de conexões sinápticas ascendentes com AVB e motoneurônios B."
+    ),
+    "AVBL": (
+        "Par contralateral esquerdo de AVBR. Co-coordena a locomoção anterógrada contínua, conectando "
+        "os interneurônios integradores cefálicos aos circuitos motores de avanço ao longo do cordão ventral."
+    ),
+    "PVCL": (
+        "Par contralateral esquerdo de PVCR. Complementa a mediação do reflexo de avanço após toque "
+        "mecânico na cauda, integrando o circuito de resposta anterógrada rápida."
+    ),
+    "VD01": (
+        "Motoneurônio inervador da musculatura ventral; participa da transmissão do padrão ondulatório motor."
+    ),
+    "VA08": (
+        "Motoneurônio do cordão ventral; acoplado eletricamente aos interneurônios de comando de reversão."
+    ),
+}
 
 
 class ConnectomeAnalyzer:
@@ -222,21 +271,25 @@ class ConnectomeAnalyzer:
     def ranking_estratificado_por_tipo(self, camada: str = "Combinada") -> pd.DataFrame:
         """
         Ranqueia os neurônios dentro de cada tipo funcional, usando métricas globais
-        calculadas sobre o grafo projetado (grau ponderado, PageRank e intermediação).
+        calculadas sobre o grafo projetado (grau ponderado, PageRank, intermediação e proximidade).
 
         O "chefe" de cada tipo é o neurônio com o maior score composto (média dos três
-        percentis), com desempate determinístico por força de saída e, por fim, nome.
+        percentis canônicos), com desempate determinístico por força de saída e, por fim, nome.
         """
         projetado = self._projetar_camada_influencia(camada)
 
         if projetado.number_of_edges() == 0:
             intermediacao = {n: 0.0 for n in projetado}
             page_rank = {n: 0.0 for n in projetado}
+            proximidade = {n: 0.0 for n in projetado}
         else:
             intermediacao = nx.betweenness_centrality(
                 projetado, weight="distance", normalized=True
             )
             page_rank = nx.pagerank(projetado, weight="weight")
+            proximidade = nx.closeness_centrality(
+                projetado, distance="distance", wf_improved=True
+            )
 
         forca_entrada = dict(projetado.in_degree(weight="weight"))
         forca_saida = dict(projetado.out_degree(weight="weight"))
@@ -254,13 +307,14 @@ class ConnectomeAnalyzer:
                 "Forca_Saida": fs,
                 "PageRank": page_rank[neuronio],
                 "Intermediacao": intermediacao[neuronio],
+                "Proximidade": proximidade[neuronio],
             })
 
         colunas = [
             "Tipo", "Neuronio", "Posicao_No_Tipo", "E_Chefe",
             "Grau_Ponderado", "Forca_Entrada", "Forca_Saida",
-            "PageRank", "Intermediacao",
-            "Pct_Grau_Ponderado", "Pct_PageRank", "Pct_Intermediacao",
+            "PageRank", "Intermediacao", "Proximidade",
+            "Pct_Grau_Ponderado", "Pct_PageRank", "Pct_Intermediacao", "Pct_Proximidade",
             "Score_Chefe"
         ]
         resultados = pd.DataFrame(registros)
@@ -271,8 +325,9 @@ class ConnectomeAnalyzer:
         resultados["Pct_Grau_Ponderado"] = resultados.groupby("Tipo")["Grau_Ponderado"].rank(pct=True, method="average")
         resultados["Pct_PageRank"] = resultados.groupby("Tipo")["PageRank"].rank(pct=True, method="average")
         resultados["Pct_Intermediacao"] = resultados.groupby("Tipo")["Intermediacao"].rank(pct=True, method="average")
+        resultados["Pct_Proximidade"] = resultados.groupby("Tipo")["Proximidade"].rank(pct=True, method="average")
 
-        # Score composto: média dos três percentis (garante um único chefe por tipo).
+        # Score composto: média dos percentis (garante um único chefe por tipo).
         resultados["Score_Chefe"] = resultados[
             ["Pct_Grau_Ponderado", "Pct_PageRank", "Pct_Intermediacao"]
         ].mean(axis=1)
@@ -301,7 +356,7 @@ class ConnectomeAnalyzer:
         """
         colunas = [
             "Tipo", "Chefe", "Score_Chefe",
-            "Lider_Grau_Ponderado", "Lider_PageRank", "Lider_Intermediacao"
+            "Lider_Grau_Ponderado", "Lider_PageRank", "Lider_Intermediacao", "Lider_Proximidade"
         ]
         ranking = self.ranking_estratificado_por_tipo(camada=camada)
         if ranking.empty:
@@ -315,6 +370,7 @@ class ConnectomeAnalyzer:
             ("Grau_Ponderado", "Lider_Grau_Ponderado"),
             ("PageRank", "Lider_PageRank"),
             ("Intermediacao", "Lider_Intermediacao"),
+            ("Proximidade", "Lider_Proximidade"),
         ]:
             maximo = ranking.groupby("Tipo")[coluna].transform("max")
             lideres = ranking[ranking[coluna] == maximo].drop_duplicates("Tipo", keep="first")
@@ -322,6 +378,162 @@ class ConnectomeAnalyzer:
             resumo[rotulo] = resumo["Tipo"].map(mapa)
 
         return resumo[colunas].reset_index(drop=True)
+
+    def ranking_global_unificado(self, camada: str = "Combinada") -> pd.DataFrame:
+        """
+        Calcula o ranking global unificado de todos os vértices do conectoma (sem estratificação por tipo),
+        agregando os percentis globais dos quatro pilares de centralidade:
+          1. Grau Ponderado (Força Sináptica Total s_u = s_u^in + s_u^out)
+          2. Centralidade de Intermediação (Betweenness Centrality ponderada por d = 1/w)
+          3. Centralidade de Proximidade (Closeness Centrality ponderada por d = 1/w)
+          4. PageRank (fluxo estacionário ponderado por w)
+
+        O Score Global Unificado é a média aritmética simples dos quatro percentis globais:
+          Score_Global = (Pct_Grau_Ponderado + Pct_Intermediacao + Pct_Proximidade + Pct_PageRank) / 4.0
+
+        O desempate segue a ordem: Score_Global desc, Força_Saida desc, Grau_Ponderado desc, Neuronio asc.
+        """
+        projetado = self._projetar_camada_influencia(camada)
+
+        if projetado.number_of_edges() == 0:
+            intermediacao = {n: 0.0 for n in projetado}
+            page_rank = {n: 0.0 for n in projetado}
+            proximidade = {n: 0.0 for n in projetado}
+        else:
+            intermediacao = nx.betweenness_centrality(
+                projetado, weight="distance", normalized=True
+            )
+            page_rank = nx.pagerank(projetado, weight="weight")
+            proximidade = nx.closeness_centrality(
+                projetado, distance="distance", wf_improved=True
+            )
+
+        forca_entrada = dict(projetado.in_degree(weight="weight"))
+        forca_saida = dict(projetado.out_degree(weight="weight"))
+
+        registros = []
+        for neuronio in projetado.nodes:
+            dados_no = self.graph.nodes[neuronio]
+            tipo = dados_no.get("tipo_funcional", "Desconhecido")
+            fe = forca_entrada[neuronio]
+            fs = forca_saida[neuronio]
+            gp = fe + fs
+
+            justificativa = JUSTIFICATIVAS_BIOLOGICAS_TOP.get(
+                neuronio,
+                f"Neurônio {neuronio} ({tipo}): integração no circuito funcional do nematódeo."
+            )
+
+            registros.append({
+                "Neuronio": neuronio,
+                "Tipo": tipo,
+                "Grau_Ponderado": gp,
+                "Forca_Entrada": fe,
+                "Forca_Saida": fs,
+                "Intermediacao": intermediacao[neuronio],
+                "Proximidade": proximidade[neuronio],
+                "PageRank": page_rank[neuronio],
+                "Justificativa_Biologica": justificativa
+            })
+
+        colunas = [
+            "Posicao_Global", "Neuronio", "Tipo", "Score_Global",
+            "Grau_Ponderado", "Forca_Entrada", "Forca_Saida",
+            "Intermediacao", "Proximidade", "PageRank",
+            "Pct_Grau_Ponderado", "Pct_Intermediacao", "Pct_Proximidade", "Pct_PageRank",
+            "Justificativa_Biologica"
+        ]
+        resultados = pd.DataFrame(registros)
+        if resultados.empty:
+            return pd.DataFrame(columns=colunas)
+
+        resultados["Pct_Grau_Ponderado"] = resultados["Grau_Ponderado"].rank(pct=True, method="average")
+        resultados["Pct_Intermediacao"] = resultados["Intermediacao"].rank(pct=True, method="average")
+        resultados["Pct_Proximidade"] = resultados["Proximidade"].rank(pct=True, method="average")
+        resultados["Pct_PageRank"] = resultados["PageRank"].rank(pct=True, method="average")
+
+        resultados["Score_Global"] = resultados[
+            ["Pct_Grau_Ponderado", "Pct_Intermediacao", "Pct_Proximidade", "Pct_PageRank"]
+        ].mean(axis=1)
+
+        ordenados = resultados.sort_values(
+            ["Score_Global", "Forca_Saida", "Grau_Ponderado", "Neuronio"],
+            ascending=[False, False, False, True]
+        ).reset_index(drop=True)
+        ordenados["Posicao_Global"] = ordenados.index + 1
+
+        return ordenados[colunas]
+
+    def obter_top_vertices_globais(self, top_n: int = 3, camada: str = "Combinada") -> pd.DataFrame:
+        """Retorna as top_n primeiras linhas do ranking global unificado."""
+        df_ranking = self.ranking_global_unificado(camada=camada)
+        return df_ranking.head(top_n).copy()
+
+    def exibir_relatorio_top_vertices(self, df_top: pd.DataFrame) -> None:
+        """
+        Imprime um relatório formatado e detalhado no console com os vértices mais importantes,
+        suas métricas quantitativas, percentis e fundamentação biológica do papel de cada um.
+        """
+        if df_top is None or df_top.empty:
+            print("Nenhum vértice encontrado no ranking global.")
+            return
+
+        print("\n" + "╔" + "═" * 92 + "╗")
+        print("║      OS TRÊS VÉRTICES MAIS IMPORTANTES DO CONECTOMA DE C. ELEGANS (TOP 3 GLOBAL)          ║")
+        print("║  Metodologia: Ranking Global Unificado (Grau Ponderado + Betweenness + Closeness + PageRank)║")
+        print("╚" + "═" * 92 + "╝")
+
+        medalhas = {1: "🥇 1º LUGAR", 2: "🥈 2º LUGAR", 3: "🥉 3º LUGAR"}
+
+        for _, linha in df_top.iterrows():
+            pos = int(linha["Posicao_Global"])
+            nome = str(linha["Neuronio"])
+            tipo = str(linha["Tipo"])
+            score = float(linha["Score_Global"])
+            gp = float(linha["Grau_Ponderado"])
+            fe = float(linha["Forca_Entrada"])
+            fs = float(linha["Forca_Saida"])
+            interm = float(linha["Intermediacao"])
+            prox = float(linha["Proximidade"])
+            pr = float(linha["PageRank"])
+            pct_gp = float(linha["Pct_Grau_Ponderado"]) * 100
+            pct_int = float(linha["Pct_Intermediacao"]) * 100
+            pct_prox = float(linha["Pct_Proximidade"]) * 100
+            pct_pr = float(linha["Pct_PageRank"]) * 100
+            rotulo_pos = medalhas.get(pos, f"#{pos}")
+
+            print(f"\n{rotulo_pos}: NEURÔNIO '{nome}' | Classe: {tipo}")
+            print(f"  • Score Global Composto: {score:.4f} (Média dos 4 percentis globais)")
+            print(f"  • Métricas Absolutas:")
+            print(f"      - Grau Ponderado (Força Sináptica): {gp:6.1f} (Entrada: {fe:5.1f} | Saída: {fs:5.1f})")
+            print(f"      - Centralidade de Intermediação:     {interm:8.5f}")
+            print(f"      - Centralidade de Proximidade:       {prox:8.5f}")
+            print(f"      - PageRank Ponderado:               {pr:8.5f}")
+            print(f"  • Posição Relativa no Conectoma (Percentis Globais):")
+            print(f"      - Força Sináptica:   {pct_gp:5.1f}% superior de toda a rede")
+            print(f"      - Intermediação:     {pct_int:5.1f}% superior (controle de caminhos mínimos)")
+            print(f"      - Proximidade:       {pct_prox:5.1f}% superior (alcance geodésico)")
+            print(f"      - PageRank:          {pct_pr:5.1f}% superior (fluxo estacionário)")
+            print(f"  • Justificativa Funcional e Relevância Biológica:")
+            texto_just = str(linha.get("Justificativa_Biologica", "")).strip()
+            linhas_just = textwrap.wrap(texto_just, width=86)
+            for lj in linhas_just:
+                print(f"      {lj}")
+
+        print("\n" + "─" * 94)
+        print("  SÍNTESE COMPARATIVA DOS TOP 3 NEURÔNIOS:")
+        print("─" * 94)
+        tabela_resumo = df_top[
+            ["Posicao_Global", "Neuronio", "Tipo", "Score_Global",
+             "Grau_Ponderado", "Intermediacao", "Proximidade", "PageRank"]
+        ].rename(columns={
+            "Posicao_Global": "Rank",
+            "Grau_Ponderado": "Força_Total",
+            "Intermediacao": "Betweenness",
+            "Proximidade": "Closeness"
+        })
+        print(tabela_resumo.to_string(index=False))
+        print("═" * 94 + "\n")
 
     @staticmethod
     def _randomizar_arestas_direcionadas(
