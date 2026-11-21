@@ -1,0 +1,439 @@
+        <style>
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                overflow: hidden !important;
+                background-color: #1a1a1a !important;
+            }
+            .card, #mynetwork {
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background-color: #1a1a1a !important;
+            }
+            #painel-legenda {
+                position: fixed;
+                top: 16px;
+                left: 16px;
+                z-index: 9000;
+                background: rgba(26, 26, 26, 0.94);
+                color: #fff;
+                border: 1px solid #444;
+                padding: 14px 18px;
+                border-radius: 8px;
+                font-family: sans-serif;
+                font-size: 13px;
+                line-height: 1.7;
+                max-width: 320px;
+                pointer-events: none;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+            }
+            .item-legenda { display: flex; align-items: center; gap: 8px; }
+            .bolinha-cor { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+            .linha-cor { width: 18px; height: 3px; display: inline-block; flex-shrink: 0; }
+            .descricao-modo {
+                margin-top: 8px; padding-top: 8px; border-top: 1px solid #3a3a3a;
+                font-size: 12px; color: #cccccc; line-height: 1.45;
+            }
+            #barra-controles-topo {
+                position: fixed; top: 16px; right: 16px; z-index: 9000;
+                display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+                background: rgba(26, 26, 26, 0.92); padding: 10px 14px; border-radius: 8px;
+                border: 1px solid #444; box-shadow: 0 6px 20px rgba(0,0,0,0.45); font-family: sans-serif;
+            }
+            .grupo-select { display: flex; flex-direction: column; gap: 3px; }
+            .label-select { color: #aaa; font-size: 10.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+            .select-custom {
+                background: #2b2b2b; color: #ffffff; border: 1px solid #555; padding: 7px 10px;
+                border-radius: 6px; font-size: 13px; font-family: sans-serif; cursor: pointer; outline: none;
+            }
+            .select-custom:hover, .select-custom:focus { border-color: #4285F4; background: #333333; }
+            .btn-topo {
+                background: #2b2b2b; color: #ffffff; border: 1px solid #555; padding: 8px 13px;
+                border-radius: 6px; cursor: pointer; font-family: sans-serif; font-size: 13px;
+                font-weight: 600; align-self: flex-end; transition: background 0.2s;
+            }
+            .btn-topo:hover { background: #3c3c3c; }
+            .btn-destaque { background: #1e4d2b; border-color: #34A853; }
+            .btn-destaque:hover { background: #286639; }
+            #modal-metricas {
+                display: none; position: fixed; inset: 0; z-index: 9999;
+                background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px);
+                align-items: center; justify-content: center;
+            }
+            .modal-caixa {
+                background: #222; border: 1px solid #444; border-radius: 10px;
+                width: 92vw; max-width: 1450px; max-height: 92vh;
+                display: flex; flex-direction: column; overflow: hidden;
+                box-shadow: 0 12px 32px rgba(0,0,0,0.65); font-family: sans-serif;
+            }
+            .modal-cabecalho {
+                display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+                gap: 12px; padding: 12px 20px; background: #181818; border-bottom: 1px solid #333;
+            }
+            .modal-controles-esq { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 1; }
+            .modal-controles-dir { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+            .select-modal-grafico {
+                background: #282828; color: #ffffff; border: 1px solid #4285F4; padding: 8px 14px;
+                border-radius: 6px; font-size: 13.5px; font-weight: 600; font-family: sans-serif;
+                cursor: pointer; outline: none; min-width: 290px;
+            }
+            .select-modal-grafico:hover, .select-modal-grafico:focus { background: #323232; border-color: #669df6; }
+            .btn-modal-acao {
+                background: #2c2c2c; color: #e0e0e0; border: 1px solid #4a4a4a; padding: 7px 12px;
+                border-radius: 6px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+                transition: background 0.15s, border-color 0.15s;
+            }
+            .btn-modal-acao:hover { background: #3c3c3c; border-color: #4285F4; color: #fff; }
+            .badge-contador-modal {
+                background: #2b3548; color: #8ab4f8; border: 1px solid #4285F4;
+                padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: bold; white-space: nowrap;
+            }
+            .input-filtro-tabela {
+                background: #282828; color: #fff; border: 1px solid #555; padding: 7px 11px;
+                border-radius: 6px; font-size: 12.5px; outline: none; width: 210px;
+            }
+            .input-filtro-tabela:focus { border-color: #4285F4; }
+            .btn-fechar-modal {
+                background: #EA4335; color: #fff; border: none; padding: 8px 14px;
+                border-radius: 6px; cursor: pointer; font-weight: bold;
+            }
+            .btn-fechar-modal:hover { background: #d33426; }
+            .modal-corpo { padding: 18px; overflow: auto; text-align: center; background: #fff; flex: 1; }
+            .container-imagem-zoom { display: inline-block; min-width: 100%; overflow: auto; }
+            .img-metrica-interativa {
+                max-width: 100%; max-height: 76vh; object-fit: contain; border-radius: 4px;
+                transition: transform 0.2s ease, width 0.2s ease; cursor: zoom-in; transform-origin: top center;
+            }
+            .modal-rodape-dica {
+                display: flex; justify-content: space-between; align-items: center; padding: 8px 20px;
+                background: #181818; border-top: 1px solid #333; color: #aaa; font-size: 12px;
+            }
+            .tabela-ranking { border-collapse: collapse; margin: 0 auto; font-size: 13px; text-align: left; }
+            .tabela-ranking th, .tabela-ranking td { padding: 6px 12px; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
+            .tabela-ranking th { background: #2c2c2c; color: #fff; font-weight: 600; }
+            .tabela-ranking tr:nth-child(even) td { background: #f4f4f4; }
+        </style>
+
+        <div id="painel-legenda">
+            <strong id="titulo-legenda">1. Clusters Funcionais</strong>
+            <div class="item-legenda"><span class="bolinha-cor" style="background:#4285F4;"></span>Sensorial</div>
+            <div class="item-legenda"><span class="bolinha-cor" style="background:#FBBC05;"></span>Interneurônio</div>
+            <div class="item-legenda"><span class="bolinha-cor" style="background:#EA4335;"></span>Comando / Hubs</div>
+            <div class="item-legenda"><span class="bolinha-cor" style="background:#34A853;"></span>Motor</div>
+            <div class="item-legenda">★ Mais influente da classe</div>
+            <div id="legenda-arestas" style="display:none; margin-top:6px; padding-top:6px; border-top:1px solid #3a3a3a;">
+                <div class="item-legenda"><span class="linha-cor" style="background:#FF9800;"></span>Sinapse Química (S/Sp)</div>
+                <div class="item-legenda"><span class="linha-cor" style="background:#00BCD4;"></span>Junção Elétrica (EJ)</div>
+                <div class="item-legenda"><span class="linha-cor" style="background:#FF4081;"></span>Multiplex (Quím + Elét)</div>
+                <div class="item-legenda"><span class="linha-cor" style="background:linear-gradient(90deg, hsl(220, 85%, 55%), hsl(110, 85%, 55%), hsl(0, 85%, 55%));"></span>Custo de Cabeamento (baixo → alto)</div>
+            </div>
+            <div id="texto-explicativo-modo" class="descricao-modo">
+                Agrupa espacialmente os neurônios em 5 ilhas segundo seu papel biológico, posicionando os maiores hubs no centro de cada grupo.
+            </div>
+        </div>
+
+        <div id="barra-controles-topo">
+            <div class="grupo-select">
+                <span class="label-select">Modo de Exibição (Layout)</span>
+                <select id="select-modo-exibicao" class="select-custom" onchange="mudarModoExibicao(this.value)">
+                    <option value="clusters">1. Clusters Funcionais (Ilhas por Papel)</option>
+                    <option value="anatomico">2. Anatomia Longitudinal (Cabeça → Corpo → Cauda)</option>
+                    <option value="hierarquico">3. Hierarquia de Fluxo (Sensorial → Comando → Motor)</option>
+                    <option value="rich_club">4. Anéis Concêntricos Rich-Club (Núcleo-Periferia)</option>
+                    <option value="multiplex">5. Polaridade Sináptica (Química vs. Elétrica)</option>
+                </select>
+            </div>
+            <div class="grupo-select">
+                <span class="label-select">Camada do Multigrafo</span>
+                <select id="select-camada-arestas" class="select-custom" onchange="filtrarCamadaSinaptica(this.value)">
+                    <option value="padrao">Todas (Padrão Consolidado)</option>
+                    <option value="colorir_camadas">Destacar Cores (Química / Elétrica / Multiplex)</option>
+                    <option value="colorir_custo">Colorir por Custo de Cabeamento (Peso × Distância Soma)</option>
+                    <option value="quimica">Somente Sinapses Químicas (Direcionadas)</option>
+                    <option value="eletrica">Somente Junções Elétricas (Gap Junctions)</option>
+                    <option value="multiplex_only">Somente Pares Multiplex (Química + Elétrica)</option>
+                </select>
+            </div>
+            {{BTN_MODAL}}
+            <button id="btn-rc-focus" class="btn-topo" onclick="destacarRichClub()">🎯 Focar Rich-Club</button>
+            <button id="btn-toggle-physics" class="btn-topo" onclick="alternarFisica()">Física: Congelada</button>
+        </div>
+
+        <div id="modal-metricas" onclick="fecharModalFora(event)">
+            <div class="modal-caixa">
+                <div class="modal-cabecalho">
+                    <div class="modal-controles-esq">
+                        <div class="grupo-select">
+                            <span class="label-select">Selecionar Gráfico / Tabela</span>
+                            <select id="select-grafico-modal" class="select-modal-grafico" onchange="selecionarItemModal(this.value)">
+                                {{OPCOES_SELECT_MODAL}}
+                            </select>
+                        </div>
+                        <button class="btn-modal-acao" onclick="navegarItemModal(-1)" title="Anterior (Seta Esquerda)">◀ Anterior</button>
+                        <span id="badge-posicao-modal" class="badge-contador-modal">1 / {{TOTAL_MODAL}}</span>
+                        <button class="btn-modal-acao" onclick="navegarItemModal(1)" title="Próximo (Seta Direita)">Próximo ▶</button>
+                    </div>
+                    <div class="modal-controles-dir">
+                        <div id="controles-zoom-grafico" style="display:flex; align-items:center; gap:6px;">
+                            <button class="btn-modal-acao" onclick="ajustarZoomGrafico(-0.2)" title="Reduzir Zoom">🔍−</button>
+                            <span id="label-zoom-modal" class="badge-contador-modal" style="min-width:44px; text-align:center;">100%</span>
+                            <button class="btn-modal-acao" onclick="ajustarZoomGrafico(0.2)" title="Aumentar Zoom">🔍+</button>
+                            <button class="btn-modal-acao" onclick="resetarZoomGrafico()" title="Ajustar à Tela">⟲ Reset</button>
+                            <button class="btn-modal-acao" onclick="baixarGraficoAtual()" title="Baixar PNG">⬇ PNG</button>
+                        </div>
+                        <div id="controles-filtro-tabela" style="display:none; align-items:center; gap:6px;">
+                            <input id="input-busca-tabela" type="text" class="input-filtro-tabela" placeholder="🔎 Filtrar neurônio / tipo..." oninput="filtrarTabelaAtiva(this.value)" />
+                        </div>
+                        <button class="btn-fechar-modal" onclick="alternarModalMetricas()">✕ Fechar (ESC)</button>
+                    </div>
+                </div>
+                <div id="corpo-modal-metricas" class="modal-corpo">{{CONTEUDOS_ABAS}}</div>
+                <div class="modal-rodape-dica">
+                    <span id="legenda-item-modal">Dica: Clique na imagem para dar zoom rápido ou use os botões 🔍+ / 🔍−.</span>
+                    <span>Atalhos: <strong>← / →</strong> alterna gráficos • <strong>+ / −</strong> zoom • <strong>ESC</strong> fecha</span>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var fisicaAtiva = false;
+            var rcDestacado = false;
+            var coordenadasLayouts = {{LAYOUTS_JSON}};
+            var membrosRichClub = new Set({{RC_JSON}});
+            var custoMaximo = {{CUSTO_MAXIMO}};
+            var listaIdsModal = {{IDS_MODAL_JSON}};
+            var indiceModalAtual = 0;
+            var nivelZoomAtual = 1.0;
+
+            var descricoesModos = {
+                "clusters": { titulo: "1. Clusters Funcionais", texto: "Agrupa os neurônios em 5 ilhas por função biológica (Sensorial, Interneurônio, Comando, Motor), com hubs no centro." },
+                "anatomico": { titulo: "2. Anatomia Longitudinal Real", texto: "Eixo X: Posição física do soma no corpo do verme (Cabeça → Corpo → Cauda). Eixo Y: Camada funcional." },
+                "hierarquico": { titulo: "3. Hierarquia Direcional de Fluxo", texto: "Organiza a rede em colunas da esquerda para a direita: Sensorial → Interneurônio → Comando → Motor." },
+                "rich_club": { titulo: "4. Anéis Concêntricos Rich-Club", texto: "Arquitetura Núcleo-Periferia: os membros da elite Rich-Club ocupam o anel central, cercados por anéis periféricos." },
+                "multiplex": { titulo: "5. Polaridade Sináptica (Multigrafo)", texto: "Eixo Y separa neurônios Químicos (Topo), Multiplex (Centro) e Elétricos / Gap Junctions (Base)." }
+            };
+
+            if (typeof network !== 'undefined') {
+                network.once("stabilizationIterationsDone", function() {
+                    network.setOptions({ physics: { enabled: false } });
+                    var posicoesAtuais = network.getPositions();
+                    for (var idNo in posicoesAtuais) {
+                        if (!idNo.startsWith("__ancora_") && coordenadasLayouts["clusters"][idNo]) {
+                            coordenadasLayouts["clusters"][idNo] = { x: posicoesAtuais[idNo].x, y: posicoesAtuais[idNo].y };
+                        }
+                    }
+                    network.fit({ animation: { duration: 400 } });
+                    fisicaAtiva = false;
+                });
+            }
+
+            function mudarModoExibicao(modo) {
+                if (typeof network === 'undefined' || !coordenadasLayouts[modo]) return;
+                fisicaAtiva = false;
+                network.setOptions({ physics: { enabled: false } });
+                document.getElementById("btn-toggle-physics").innerText = "Física: Congelada";
+                var mapaCoords = coordenadasLayouts[modo];
+                var atualizacoesNos = [];
+                var todosNos = nodes.get();
+                for (var i = 0; i < todosNos.length; i++) {
+                    var no = todosNos[i];
+                    if (String(no.id).startsWith("__ancora_")) continue;
+                    var destino = mapaCoords[no.id];
+                    if (!destino) continue;
+                    var ehRC = membrosRichClub.has(no.id);
+                    var larguraBorda = (no.shape === "star" || ehRC) ? 4 : 1.5;
+                    if (modo === "rich_club" && ehRC) larguraBorda = 6;
+                    atualizacoesNos.push({ id: no.id, x: destino.x, y: destino.y, borderWidth: larguraBorda });
+                }
+                nodes.update(atualizacoesNos);
+                if (descricoesModos[modo]) {
+                    document.getElementById("titulo-legenda").innerText = descricoesModos[modo].titulo;
+                    document.getElementById("texto-explicativo-modo").innerText = descricoesModos[modo].texto;
+                }
+                var selectCamada = document.getElementById("select-camada-arestas");
+                if (modo === "multiplex" && selectCamada.value === "padrao") {
+                    selectCamada.value = "colorir_camadas";
+                    filtrarCamadaSinaptica("colorir_camadas");
+                }
+                network.fit({ animation: { duration: 650, easingFunction: "easeInOutQuad" } });
+            }
+
+            function filtrarCamadaSinaptica(filtro) {
+                if (typeof edges === 'undefined') return;
+                var todasArestas = edges.get();
+                var atualizacoesArestas = [];
+                document.getElementById("legenda-arestas").style.display = (filtro === "padrao") ? "none" : "block";
+                for (var i = 0; i < todasArestas.length; i++) {
+                    var ar = todasArestas[i];
+                    if (String(ar.from).startsWith("__ancora_")) continue;
+                    var pq = ar.peso_quimico || 0, pe = ar.peso_eletrico || 0, pt = ar.peso_acumulado || (pq + pe) || 1;
+                    var ocultar = false, cor = "rgba(160, 160, 160, 0.22)", setaAtiva = true, pesoRef = pt;
+                    if (filtro === "quimica") { ocultar = (pq === 0); cor = "rgba(255, 152, 0, 0.42)"; pesoRef = pq; }
+                    else if (filtro === "eletrica") { ocultar = (pe === 0); cor = "rgba(0, 188, 212, 0.48)"; setaAtiva = false; pesoRef = pe; }
+                    else if (filtro === "multiplex_only") { ocultar = !(pq > 0 && pe > 0); cor = "rgba(255, 64, 129, 0.72)"; }
+                    else if (filtro === "colorir_camadas") {
+                        if (pq > 0 && pe > 0) { cor = "rgba(255, 64, 129, 0.65)"; }
+                        else if (pe > 0) { cor = "rgba(0, 188, 212, 0.38)"; setaAtiva = false; }
+                        else { cor = "rgba(255, 152, 0, 0.30)"; }
+                    } else if (filtro === "colorir_custo") {
+                        var tCusto = custoMaximo > 0 ? Math.min((ar.custo_cabeamento || 0) / custoMaximo, 1) : 0;
+                        cor = "hsl(" + (220 * (1 - tCusto)).toFixed(0) + ", 85%, 55%)";
+                    }
+                    var largura = 0.7 + Math.log1p(Math.max(pesoRef, 1)) * 0.85;
+                    atualizacoesArestas.push({ id: ar.id, hidden: ocultar, color: cor, width: largura, arrows: { to: { enabled: setaAtiva, scaleFactor: 0.45 } } });
+                }
+                edges.update(atualizacoesArestas);
+            }
+
+            function alternarFisica() {
+                fisicaAtiva = !fisicaAtiva;
+                network.setOptions({ physics: { enabled: fisicaAtiva } });
+                document.getElementById("btn-toggle-physics").innerText = fisicaAtiva ? "Física: Ativa" : "Física: Congelada";
+            }
+
+            function destacarRichClub() {
+                var listaRC = Array.from(membrosRichClub);
+                if (!listaRC.length || typeof network === 'undefined') return;
+                rcDestacado = !rcDestacado;
+                var btn = document.getElementById("btn-rc-focus");
+                if (rcDestacado) {
+                    network.selectNodes(listaRC, true);
+                    network.fit({ nodes: listaRC, animation: { duration: 600 } });
+                    btn.innerText = "🔄 Visão Completa";
+                } else {
+                    network.unselectAll();
+                    network.fit({ animation: { duration: 500 } });
+                    btn.innerText = "🎯 Focar Rich-Club";
+                }
+            }
+
+            function alternarModalMetricas() {
+                var modal = document.getElementById("modal-metricas");
+                if (!modal) return;
+                var abrir = (modal.style.display !== "flex");
+                modal.style.display = abrir ? "flex" : "none";
+                if (abrir && listaIdsModal.length > 0) {
+                    var sel = document.getElementById("select-grafico-modal");
+                    selecionarItemModal((sel && sel.value) ? sel.value : listaIdsModal[0]);
+                }
+            }
+
+            function fecharModalFora(e) { if (e.target.id === "modal-metricas") alternarModalMetricas(); }
+
+            function selecionarItemModal(idAba) {
+                if (!idAba) return;
+                var conteudos = document.getElementsByClassName("conteudo-aba");
+                for (var i = 0; i < conteudos.length; i++) conteudos[i].style.display = "none";
+                var alvo = document.getElementById(idAba);
+                if (!alvo) return;
+                alvo.style.display = "block";
+                var idx = listaIdsModal.indexOf(idAba);
+                if (idx >= 0) indiceModalAtual = idx;
+                var sel = document.getElementById("select-grafico-modal");
+                if (sel && sel.value !== idAba) sel.value = idAba;
+                var badgePos = document.getElementById("badge-posicao-modal");
+                if (badgePos) badgePos.innerText = (indiceModalAtual + 1) + " / " + Math.max(listaIdsModal.length, 1);
+                var tipoItem = alvo.getAttribute("data-tipo") || "grafico";
+                var tituloItem = alvo.getAttribute("data-titulo") || "";
+                var divZoom = document.getElementById("controles-zoom-grafico");
+                var divFiltro = document.getElementById("controles-filtro-tabela");
+                var legendaRodape = document.getElementById("legenda-item-modal");
+                if (tipoItem === "grafico") {
+                    if (divZoom) divZoom.style.display = "flex";
+                    if (divFiltro) divFiltro.style.display = "none";
+                    if (legendaRodape) legendaRodape.innerText = "Gráfico: " + tituloItem;
+                    resetarZoomGrafico();
+                } else {
+                    if (divZoom) divZoom.style.display = "none";
+                    if (divFiltro) divFiltro.style.display = "flex";
+                    var inputBusca = document.getElementById("input-busca-tabela");
+                    if (inputBusca) { inputBusca.value = ""; filtrarTabelaAtiva(""); }
+                    if (legendaRodape) legendaRodape.innerText = "Tabela: " + tituloItem;
+                }
+            }
+
+            function navegarItemModal(delta) {
+                if (!listaIdsModal.length) return;
+                selecionarItemModal(listaIdsModal[(indiceModalAtual + delta + listaIdsModal.length) % listaIdsModal.length]);
+            }
+
+            function obterImagemAtivaModal() {
+                if (!listaIdsModal.length) return null;
+                var divAtual = document.getElementById(listaIdsModal[indiceModalAtual]);
+                return divAtual ? divAtual.querySelector("img.img-metrica-interativa") : null;
+            }
+
+            function aplicarZoomNaImagem(img) {
+                if (!img) return;
+                if (Math.abs(nivelZoomAtual - 1.0) < 0.01) {
+                    img.style.maxWidth = "100%"; img.style.maxHeight = "76vh"; img.style.width = "auto"; img.style.cursor = "zoom-in";
+                } else {
+                    img.style.maxWidth = "none"; img.style.maxHeight = "none"; img.style.width = Math.round(nivelZoomAtual * 100) + "%"; img.style.cursor = "zoom-out";
+                }
+                var lbl = document.getElementById("label-zoom-modal");
+                if (lbl) lbl.innerText = Math.round(nivelZoomAtual * 100) + "%";
+            }
+
+            function ajustarZoomGrafico(delta) {
+                var img = obterImagemAtivaModal();
+                if (!img) return;
+                nivelZoomAtual = Math.min(2.6, Math.max(0.6, Math.round((nivelZoomAtual + delta) * 10) / 10));
+                aplicarZoomNaImagem(img);
+            }
+
+            function resetarZoomGrafico() {
+                nivelZoomAtual = 1.0;
+                var img = obterImagemAtivaModal();
+                if (img) aplicarZoomNaImagem(img);
+                var corpo = document.getElementById("corpo-modal-metricas");
+                if (corpo) { corpo.scrollTop = 0; corpo.scrollLeft = 0; }
+            }
+
+            function alternarCliqueZoomImagem(img) {
+                if (!img) return;
+                nivelZoomAtual = (nivelZoomAtual > 1.05) ? 1.0 : 1.6;
+                aplicarZoomNaImagem(img);
+            }
+
+            function baixarGraficoAtual() {
+                var img = obterImagemAtivaModal();
+                if (!img) return;
+                var divAtual = document.getElementById(listaIdsModal[indiceModalAtual]);
+                var link = document.createElement("a");
+                link.href = img.src;
+                link.download = (divAtual && divAtual.getAttribute("data-arquivo")) ? divAtual.getAttribute("data-arquivo") : "grafico_conectoma.png";
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            }
+
+            function filtrarTabelaAtiva(termo) {
+                if (!listaIdsModal.length) return;
+                var divAtual = document.getElementById(listaIdsModal[indiceModalAtual]);
+                if (!divAtual) return;
+                var linhas = divAtual.querySelectorAll("table.tabela-ranking tbody tr");
+                var q = String(termo || "").toLowerCase().trim();
+                for (var i = 0; i < linhas.length; i++) {
+                    var txt = (linhas[i].innerText || linhas[i].textContent || "").toLowerCase();
+                    linhas[i].style.display = (!q || txt.indexOf(q) !== -1) ? "" : "none";
+                }
+            }
+
+            document.addEventListener("keydown", function(e) {
+                var modal = document.getElementById("modal-metricas");
+                if (!modal || modal.style.display !== "flex") return;
+                var tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : "";
+                if (e.key === "Escape") modal.style.display = "none";
+                else if (tag !== "input" && tag !== "select") {
+                    if (e.key === "ArrowLeft") { e.preventDefault(); navegarItemModal(-1); }
+                    else if (e.key === "ArrowRight") { e.preventDefault(); navegarItemModal(1); }
+                    else if (e.key === "+" || e.key === "=") { e.preventDefault(); ajustarZoomGrafico(0.2); }
+                    else if (e.key === "-") { e.preventDefault(); ajustarZoomGrafico(-0.2); }
+                    else if (e.key === "0") { e.preventDefault(); resetarZoomGrafico(); }
+                }
+            });
+        </script>
+        </body>

@@ -2,7 +2,13 @@
 Módulo de configurações, constantes biológicas e parâmetros visuais do conectoma C. elegans.
 """
 
-OUTPUT_DIR = "outputs"
+import os
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
+CONNECT_DATA_PATH = os.path.join(PROJECT_ROOT, "NeuronConnect.xls")
+TYPE_DATA_PATH_XLS = os.path.join(PROJECT_ROOT, "NeuronType.xls")
+TYPE_DATA_PATH_XLSX = os.path.join(PROJECT_ROOT, "NeuronType.xlsx")
 
 PREFIXOS_SENSORIAIS = (
     "ADF", "ADL", "AFD", "ALM", "ALN", "AQR", "ASE", "ASG", "ASH", "ASI",
@@ -167,6 +173,31 @@ PALETA_CENARIOS_DIFUSAO = {
     "Erdős-Rényi (Top Hubs)": "#34A853",        # Verde
     "Erdős-Rényi (Aleatório)": "#757575",       # Cinza
 }
+
+ROBUSTNESS_ANALYSIS_CONFIG = {
+    "n_runs_aleatorio": 30,        # Repetições Monte Carlo para falhas aleatórias no C. elegans
+    "n_runs_sinteticas": 15,       # Instâncias por modelo sintético (ER, WS, BA)
+    "ws_rewiring_p": 0.10,         # Probabilidade de religação para Watts-Strogatz
+    "passo_eficiencia": 5,         # Avaliar E_glob a cada N passos (mantendo 0..10 e N) para alta velocidade
+    "limiar_colapso_50": 0.50,     # Fração S(q) <= 0.50 para f_{c,50}
+    "limiar_colapso_20": 0.20,     # Fração S(q) <= 0.20 para f_{c,20}
+    "seed_base": 42,               # Semente determinística global
+}
+
+WIRING_NULL_CONFIG = {
+    "n_runs_null": 50,             # Permutações aleatórias de soma_pos mantendo topologia e pesos fixos
+    "seed_base": 42,
+}
+
+PALETA_REGIMES_ROBUSTEZ = {
+    "Falha Aleatória": "#34A853",                    # Verde
+    "Ataque Estático (Grau)": "#FBBC05",             # Âmbar
+    "Ataque Adaptativo (Grau)": "#EA4335",           # Vermelho
+    "Ataque Estático (Intermediação)": "#4285F4",    # Azul
+    "Ataque Adaptativo (Intermediação)": "#9C27B0",  # Roxo
+    "Rich-Club -> Grau Adaptativo": "#FF6D00",       # Laranja intenso
+}
+
 
 
 

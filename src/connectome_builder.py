@@ -7,6 +7,9 @@ from typing import Optional
 import pandas as pd
 import networkx as nx
 from config import (
+    CONNECT_DATA_PATH,
+    TYPE_DATA_PATH_XLS,
+    TYPE_DATA_PATH_XLSX,
     PREFIXOS_SENSORIAIS,
     PREFIXOS_MOTORES,
     INTERNEURONIOS_COMANDO
@@ -16,10 +19,10 @@ from config import (
 class ConnectomeBuilder:
     """Carrega os dados do WormAtlas e estrutura o conectoma como um MultiDiGraph."""
 
-    def __init__(self, connect_path: str = "NeuronConnect.xls", type_path: Optional[str] = None):
+    def __init__(self, connect_path: str = CONNECT_DATA_PATH, type_path: Optional[str] = None):
         self.connect_path = connect_path
         if type_path is None:
-            self.type_path = "NeuronType.xls" if os.path.exists("NeuronType.xls") else "NeuronType.xlsx"
+            self.type_path = TYPE_DATA_PATH_XLS if os.path.exists(TYPE_DATA_PATH_XLS) else TYPE_DATA_PATH_XLSX
         else:
             self.type_path = type_path
 
